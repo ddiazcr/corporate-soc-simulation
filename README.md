@@ -271,7 +271,7 @@ Ten failed SMB authentications were generated from the DC against itself
 Deliverables:
 
 - [x] Advanced audit policy script ([`scripts/Enable-AuditPolicies.ps1`](scripts/Enable-AuditPolicies.ps1))
-- [x] Custom Wazuh rules for each technique ([`rules/local_rules.xml`](rules/local_rules.xml))
+- [x] Custom Wazuh rules for brute force, password spraying (NTLM and Kerberos), Kerberoasting and privileged group changes ([`rules/local_rules.xml`](rules/local_rules.xml)), aligned with the Wazuh 4.9.2 ruleset
 - [x] End-to-end validation: brute force (T1110.001) fired by a real attack, alert captured from `alerts.json`
 - [ ] Validate password spraying and Kerberoasting detections
 - [ ] Honeytoken service account to detect Kerberoasting with zero false positives

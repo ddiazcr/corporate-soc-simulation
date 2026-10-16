@@ -2,28 +2,42 @@
   Corporate SOC Simulation - Nimbrek S.A.
   Custom Wazuh detection rules for Active Directory attacks (Phase 3)
 
-  Install on the Wazuh manager:
-    append to /var/ossec/etc/rules/local_rules.xml
-    then: sudo systemctl restart wazuh-manager
+  Install on the Wazuh manager as its own rule file:
+    sudo cp local_rules.xml /var/ossec/etc/rules/nimbrek_rules.xml
+    sudo chown wazuh:wazuh /var/ossec/etc/rules/nimbrek_rules.xml
+  Test each rule with a sample event before restarting:
+    sudo /var/ossec/bin/wazuh-logtest
+  Then: sudo systemctl restart wazuh-manager
 
-  These rules sit on top of Wazuh's built-in Windows ruleset
-  (group "windows,", event 4625 -> rule 60122; event 4769 -> rule 60176).
+  These rules chain off Wazuh 4.9.2's built-in Windows ruleset
+  (ruleset/rules/0580-win-security_rules.xml). Parents used:
+    60122  4625 logon failure (bad user or password)
+    60204  multiple logon failures from one IP (8 in 240 s)
+    60104  generic audit failure (4771 has no dedicated built-in rule)
+    60106  logon success, which also covers 4769 service tickets
+    60154 / 60159 / 60166 / 60167  Administrators / Domain Admins /
+           Schema Admins / Enterprise Admins group changed
+
+  Field names: inside rules the decoded fields are win.system.* and
+  win.eventdata.*. The "data." prefix only exists in the indexed alert
+  (dashboard, alerts.json), never in rule definitions.
+
   Rule IDs 100200-100299 are reserved for this project.
 -->
 
 <group name="nimbrek,active_directory,attack,">
 
   <!--
-    T1110.001 - Brute force (VALIDATED)
+    T1110.001 - Brute force (VALIDATED via built-in 60204)
     Wazuh's built-in rule 60204 ("Multiple Windows Logon Failures") already
-    correlates repeated 4625 events. Instead of duplicating that correlation,
-    this rule chains off 60204 to raise the severity and attach the Nimbrek
-    context and the precise sub-technique. Chaining (if_sid) avoids the
-    frequency race where the native rule consumes the matched events first.
+    correlates repeated 4625 events per source IP. Instead of duplicating that
+    correlation, this rule chains off 60204 to raise the severity and attach
+    the Nimbrek context and the precise sub-technique. Chaining (if_sid) avoids
+    the frequency race where the native rule consumes the matched events first.
   -->
   <rule id="100200" level="12">
     <if_sid>60204</if_sid>
-    <description>Nimbrek: brute force against domain controller - multiple failed logons from $(data.win.eventdata.ipAddress)</description>
+    <description>Nimbrek: brute force against domain controller - multiple failed logons from $(win.eventdata.ipAddress)</description>
     <mitre>
       <id>T1110.001</id>
     </mitre>
@@ -31,15 +45,17 @@
   </rule>
 
   <!--
-    T1110.003 - Password spraying
+    T1110.003 - Password spraying over NTLM/SMB (event 4625)
     Same source failing against several different accounts (one try each)
     is the spraying signature, distinct from hammering a single account.
+    Level 13 so it outranks 100200 when both fire on the same burst
+    (6 accounts here vs. 8 failures for 60204).
   -->
-  <rule id="100201" level="12" frequency="6" timeframe="120">
+  <rule id="100201" level="13" frequency="6" timeframe="120">
     <if_matched_sid>60122</if_matched_sid>
-    <same_field>data.win.eventdata.ipAddress</same_field>
-    <different_field>data.win.eventdata.targetUserName</different_field>
-    <description>Nimbrek: possible password spraying - 6+ accounts targeted from $(data.win.eventdata.ipAddress)</description>
+    <same_field>win.eventdata.ipAddress</same_field>
+    <different_field>win.eventdata.targetUserName</different_field>
+    <description>Nimbrek: possible password spraying (NTLM) - 6+ accounts targeted from $(win.eventdata.ipAddress)</description>
     <mitre>
       <id>T1110.003</id>
     </mitre>
@@ -47,14 +63,44 @@
   </rule>
 
   <!--
+    Kerberos pre-authentication failure (event 4771).
+    Wazuh 4.9.2 has no dedicated rule for 4771; it only reaches the generic
+    audit-failure rule 60104. This base rule gives it an ID to correlate on.
+    Status 0x18 = wrong password (the one spraying tools such as kerbrute produce).
+  -->
+  <rule id="100202" level="5">
+    <if_sid>60104</if_sid>
+    <field name="win.system.eventID">^4771$</field>
+    <description>Nimbrek: Kerberos pre-authentication failed for $(win.eventdata.targetUserName) (status $(win.eventdata.status))</description>
+    <group>authentication_failed,kerberos,</group>
+  </rule>
+
+  <!--
+    T1110.003 - Password spraying over Kerberos (event 4771)
+  -->
+  <rule id="100203" level="13" frequency="6" timeframe="120">
+    <if_matched_sid>100202</if_matched_sid>
+    <same_field>win.eventdata.ipAddress</same_field>
+    <different_field>win.eventdata.targetUserName</different_field>
+    <description>Nimbrek: possible password spraying (Kerberos) - 6+ accounts failed pre-auth from $(win.eventdata.ipAddress)</description>
+    <mitre>
+      <id>T1110.003</id>
+    </mitre>
+    <group>authentication_failures,kerberos,</group>
+  </rule>
+
+  <!--
     T1558.003 - Kerberoasting
     Kerberos service-ticket request (4769) using weak RC4 encryption (0x17).
+    In 4.9.2 a successful 4769 is classified by 60106 ("Windows Logon Success"),
+    so the rule must chain from there and pin the event ID.
     A burst of these for different services is a strong Kerberoasting signal.
   -->
   <rule id="100210" level="8">
-    <if_sid>60176</if_sid>
-    <field name="data.win.eventdata.ticketEncryptionType">0x17</field>
-    <description>Nimbrek: Kerberos service ticket requested with weak RC4 (possible Kerberoasting prep)</description>
+    <if_sid>60106</if_sid>
+    <field name="win.system.eventID">^4769$</field>
+    <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
+    <description>Nimbrek: Kerberos service ticket for $(win.eventdata.serviceName) requested with weak RC4 (possible Kerberoasting)</description>
     <mitre>
       <id>T1558.003</id>
     </mitre>
@@ -63,8 +109,9 @@
 
   <rule id="100211" level="12" frequency="5" timeframe="60">
     <if_matched_sid>100210</if_matched_sid>
-    <same_field>data.win.eventdata.ipAddress</same_field>
-    <description>Nimbrek: possible Kerberoasting - 5+ RC4 service tickets from $(data.win.eventdata.ipAddress) in 60s</description>
+    <same_field>win.eventdata.ipAddress</same_field>
+    <different_field>win.eventdata.serviceName</different_field>
+    <description>Nimbrek: possible Kerberoasting - RC4 tickets for 5+ services from $(win.eventdata.ipAddress) in 60s</description>
     <mitre>
       <id>T1558.003</id>
     </mitre>
@@ -72,16 +119,21 @@
   </rule>
 
   <!--
-    T1098 - Account manipulation
-    A member added to a privileged group (4728 global / 4732 local / 4756 universal).
+    T1098 - Account manipulation: member ADDED to a privileged group.
+    The built-in privileged-group rules (level 12) fire on both additions
+    and removals, and they are evaluated before any sibling custom rule, so
+    a rule hanging from 60141/60144/60151 would never see these groups.
+    This rule chains off the privileged-group rules and keeps only additions
+    (4728 global / 4732 local / 4756 universal).
   -->
-  <rule id="100220" level="12">
-    <if_sid>60137,60138,60140</if_sid>
-    <description>Nimbrek: member added to a privileged group ($(data.win.eventdata.targetUserName))</description>
+  <rule id="100220" level="13">
+    <if_sid>60154,60159,60166,60167</if_sid>
+    <field name="win.system.eventID">^4728$|^4732$|^4756$</field>
+    <description>Nimbrek: member added to privileged group $(win.eventdata.targetUserName) by $(win.eventdata.subjectUserName)</description>
     <mitre>
       <id>T1098</id>
     </mitre>
-    <group>account_changes,</group>
+    <group>account_changes,group_changed,</group>
   </rule>
 
 </group>
