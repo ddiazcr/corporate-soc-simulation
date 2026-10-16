@@ -1,6 +1,6 @@
 # 🛡️ Corporate SOC Simulation — Nimbrek S.A.
 
-![Status](https://img.shields.io/badge/status-Phase%202%20in%20progress-blue)
+![Status](https://img.shields.io/badge/status-Phase%203%20in%20progress-blue)
 ![Windows Server](https://img.shields.io/badge/Windows%20Server-2022-0078D6?logo=windows&logoColor=white)
 ![Active Directory](https://img.shields.io/badge/Active%20Directory-lab.local-0078D6)
 ![Wazuh](https://img.shields.io/badge/SIEM-Wazuh%204.9.2-3BB1C2)
@@ -19,8 +19,8 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 | Phase | Scope | Status |
 |---|---|---|
 | **1 — Infrastructure** | Domain controller, `lab.local` forest, Nimbrek S.A. structure | ✅ Complete |
-| **2 — Visibility** | Wazuh agent on the DC, advanced audit policies via GPO | 🟡 In progress — agent enrolled and active |
-| **3 — Attack & detection** | Attacks from Kali mapped to MITRE ATT&CK, custom detections, honeytoken | ⏳ Planned |
+| **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
+| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force (T1110.001) detected live |
 | **4 — AI triage** | Reuse the Home SOC Lab AI pipeline on Active Directory alerts | ⏳ Planned |
 | **5 — Hardening** | AD security audit with before/after measurement | ⏳ Planned |
 
@@ -102,7 +102,7 @@ Get-ADOrganizationalUnit -Filter * | Select-Object Name
 
 ---
 
-## 📡 Phase 2 — Visibility (in progress)
+## 📡 Phase 2 — Visibility ✅
 
 The Wazuh agent was deployed **offline**: the domain controller has no internet access, so the MSI was downloaded on the host and delivered through a read-only VirtualBox shared folder.
 
@@ -118,10 +118,32 @@ Enrollment was verified from the manager:
 ```text
 $ sudo /var/ossec/bin/agent_control -l
    ID: 000, Name: wazuh-server (server), IP: 127.0.0.1, Active/Local
-   ID: 001, Name: DC01, IP: any, Active
+   ID: 004, Name: DC01, IP: any, Active
 ```
 
-**Next in this phase:** advanced audit policies via GPO (logon, Kerberos, account management, policy change) and end-to-end validation of the key Windows events in the SIEM.
+![DC01 agent active](docs/img/18-agent-dc01-active.jpg)
+*DC01 agent reporting to the Wazuh manager as `Active`*
+
+**Advanced audit policy** is applied with [`scripts/Enable-AuditPolicies.ps1`](scripts/Enable-AuditPolicies.ps1),
+which turns on Success+Failure auditing for the subcategories that feed the
+Phase 3 detections (logon, Kerberos AS/TGS, account and group management,
+directory service access) and enlarges the Security event log. On a single-DC
+lab these are applied locally with `auditpol`; in a multi-DC domain the same
+subcategories would be pushed through a GPO linked to the Domain Controllers OU.
+
+**End-to-end validation (done).** Failed authentications generated against the
+DC produced event **4625** (logon type 3), which the agent forwarded to the
+manager. The events were confirmed directly in `alerts.json`:
+
+```bash
+$ grep -c 4625 /var/ossec/logs/alerts/alerts.json
+22
+```
+
+![4625 events in alerts.json](docs/img/19-alerts-4625-rule-60122.jpg)
+*Event 4625 reaching the SIEM and matched by the built-in Windows ruleset*
+
+With the Windows pipeline confirmed end-to-end, the lab moves into Phase 3.
 
 ---
 
@@ -157,6 +179,33 @@ After deploying the agent, the DC could not reach the manager on ports 1514/1515
 - Knowing when to stop repairing and rebuild from a known-good state is an operational skill. Per-phase snapshots made the rebuild fast and safe.
 - "The agent can't connect" is not always a network problem — check the service on the other end first.
 - Monitoring the monitoring stack matters: a SIEM with a full disk fails silently.
+
+### Incident 3 — The agent that would not connect
+
+Before the first detection, the DC agent sat at **"Never connected"** for hours
+even though enrollment had succeeded. The fix only came after ruling causes out
+in order:
+
+| Hypothesis | Check | Verdict |
+|---|---|---|
+| Key mismatch between agent and manager | Compared `client.keys` on both sides | Identical — not the cause |
+| Clock skew breaking message validation | `timedatectl` on the manager | Real (manager was ~15 h behind); fixed, but not the cause |
+| Manager not listening | `ss -tlnp` → `wazuh-remoted` on `0.0.0.0:1514` | Listening — not the cause |
+| **Stale daemon holding the port** | A failed restart left an **old `wazuh-remoted` process bound to 1514** (`Address already in use`) | **Root cause** |
+
+The agent had been talking to a **zombie `remoted`** that still held port 1514
+but no longer had the current keys, so every connection was silently dropped.
+Killing the stale processes (`pkill -9 -f /var/ossec`) and starting the manager
+clean fixed it immediately — the agent registered as `Active` within seconds.
+
+**Lessons learned**
+
+- "Never connected" is rarely one thing. Rule causes out methodically.
+- A zombie process can impersonate a healthy service. Always confirm **which PID
+  owns the port**, not just that *something* is listening.
+- On a slow single-vCPU VM, `systemctl restart` can start the new daemon before
+  the old one released its socket. A clean `stop → kill stragglers → start` is
+  more reliable than a plain restart.
 
 ---
 
@@ -196,20 +245,35 @@ After deploying the agent, the DC could not reach the manager on ports 1514/1515
 
 ---
 
-## 🚀 Roadmap — Phase 3 attack & detection plan
+## 🚀 Phase 3 — Attack & detection (in progress)
 
-| Technique | MITRE ATT&CK | Key Windows event |
-|---|---|---|
-| Brute force | T1110.001 | 4625 |
-| Password spraying | T1110.003 | 4625 / 4771 |
-| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) |
-| Domain account discovery | T1087.002 | 4661 / 4662 |
-| Privileged group changes | T1098 | 4728 / 4732 / 4756 |
+| Technique | MITRE ATT&CK | Key Windows event | Status |
+|---|---|---|---|
+| Brute force | T1110.001 | 4625 | ✅ detected live |
+| Password spraying | T1110.003 | 4625 / 4771 | ⏳ next |
+| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ⏳ planned |
+| Domain account discovery | T1087.002 | 4661 / 4662 | ⏳ planned |
+| Privileged group changes | T1098 | 4728 / 4732 / 4756 | ⏳ planned |
 
-Planned deliverables:
+Full technique-by-technique breakdown with detection logic and evidence:
+[`docs/mitre_attack_mapping.md`](docs/mitre_attack_mapping.md).
 
-- [ ] Advanced audit policies via GPO
-- [ ] Custom Wazuh rules for each technique, with true/false positive results
+### First live detection — Brute force (T1110.001)
+
+Ten failed SMB authentications were generated from the DC against itself
+(`net use \\192.168.56.10\ipc$` with wrong credentials). Each produced event
+4625; the agent forwarded them; the manager correlated them and raised a
+**brute-force alert mapped to MITRE ATT&CK T1110**, captured in `alerts.json`.
+
+![Brute-force alert in alerts.json](docs/img/20-alert-60204-bruteforce.jpg)
+*Alert 60204 "Multiple Windows Logon Failures" → T1110 (Credential Access / Brute Force)*
+
+Deliverables:
+
+- [x] Advanced audit policy script ([`scripts/Enable-AuditPolicies.ps1`](scripts/Enable-AuditPolicies.ps1))
+- [x] Custom Wazuh rules for each technique ([`rules/local_rules.xml`](rules/local_rules.xml))
+- [x] End-to-end validation: brute force (T1110.001) fired by a real attack, alert captured from `alerts.json`
+- [ ] Validate password spraying and Kerberoasting detections
 - [ ] Honeytoken service account to detect Kerberoasting with zero false positives
 - [ ] Incident report per attack (timeline, IOCs, response)
 - [ ] AI triage of AD alerts using the [Home SOC Lab pipeline](https://github.com/ddiazcr/home-soc-lab/tree/main/AI)
