@@ -250,7 +250,7 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 | Technique | MITRE ATT&CK | Key Windows event | Status |
 |---|---|---|---|
 | Brute force | T1110.001 | 4625 | ✅ detected live |
-| Password spraying | T1110.003 | 4625 / 4771 | ⏳ next |
+| Password spraying | T1110.003 | 4625 / 4771 | ✅ detected live |
 | Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ⏳ planned |
 | Domain account discovery | T1087.002 | 4661 / 4662 | ⏳ planned |
 | Privileged group changes | T1098 | 4728 / 4732 / 4756 | ⏳ planned |

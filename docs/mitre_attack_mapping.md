@@ -12,7 +12,7 @@ validated end-to-end.
 | Tactic | Technique | ID | Windows event | Wazuh rule | Status |
 |---|---|---|---|---|---|
 | Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | built-in 60204 → 100200 (level 12) | ✅ validated (60204); 100200 pending re-test |
-| Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ⏳ pending |
+| Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ✅ validated (100201, NTLM) |
 | Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12) | ⏳ pending |
 | Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | not written yet (needs SACLs on AD objects) | ⏳ pending |
 | Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ⏳ pending |
@@ -54,6 +54,19 @@ over two protocols, so there are two detections:
 
 Both spraying rules are level 13 so they outrank 100200 when a large spray
 also trips the built-in 8-failures-per-IP threshold of 60204.
+
+**Validated 2026-10-16 (NTLM path):** seven failed SMB authentications were
+generated from the domain controller against seven different lab accounts
+(`crojas, mjimenez, lvargas, amora, scastro, dherrera, lsoto`) with a wrong
+password, from a single source IP. Each produced event 4625 (logon type 3);
+the agent forwarded them and the manager fired **rule 100201 (T1110.003,
+level 13)** — confirmed in `alerts.json`:
+
+```bash
+sudo grep -hoE '100(200|201|202|203|210|211|220)' \
+     /var/ossec/logs/alerts/alerts.json | sort | uniq -c
+#       1 100201
+```
 
 ### T1558.003 — Kerberoasting (rules 100210 / 100211)
 An attacker requests Kerberos service tickets (event 4769) for accounts with
