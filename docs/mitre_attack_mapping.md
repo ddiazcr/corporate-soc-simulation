@@ -13,9 +13,9 @@ validated end-to-end.
 |---|---|---|---|---|---|
 | Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | built-in 60204 → 100200 (level 12) | ✅ validated (60204); 100200 pending re-test |
 | Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ✅ validated (100201, NTLM) |
-| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12) | ⏳ pending |
+| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12) | ✅ validated (100210) |
 | Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | not written yet (needs SACLs on AD objects) | ⏳ pending |
-| Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ⏳ pending |
+| Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ✅ validated (100220) |
 
 ## Detection logic
 
@@ -65,7 +65,9 @@ level 13)** — confirmed in `alerts.json`:
 ```bash
 sudo grep -hoE '100(200|201|202|203|210|211|220)' \
      /var/ossec/logs/alerts/alerts.json | sort | uniq -c
-#       1 100201
+#       1 100201   # password spraying  (T1110.003)
+#       1 100210   # Kerberoasting      (T1558.003)
+#       1 100220   # privileged group   (T1098)
 ```
 
 ### T1558.003 — Kerberoasting (rules 100210 / 100211)
@@ -77,6 +79,14 @@ rule 100210 chains from it, pins event ID 4769 and matches `0x17`. Rule 100211
 escalates when RC4 tickets for **5+ different services** come from one source
 in 60 seconds (burst = enumeration of service accounts).
 
+**Validated 2026-10-17:** a honeytoken service account `svc_sql_backup` was
+created with RC4-only encryption (`-KerberosEncryptionType RC4`) and given the
+SPN `MSSQLSvc/db01.lab.local:1433`. Requesting its service ticket from the DC
+(`klist get MSSQLSvc/db01.lab.local:1433`) made the KDC issue the ticket with
+`RSADSI RC4-HMAC(NT)` — the `0x17` signature. The resulting event 4769 was
+forwarded by the agent and the manager fired **rule 100210 (T1558.003)** —
+confirmed in `alerts.json` (see the evidence block above).
+
 ### T1098 — Privileged group manipulation (rule 100220)
 Adding a member to a privileged group generates event 4728 / 4732 / 4756.
 Wazuh already ships level-12 rules for changes to **Administrators (60154),
@@ -85,6 +95,12 @@ but they fire on additions and removals alike. Because built-in child rules
 are evaluated first, a custom rule hanging from the generic "member added"
 rules would never see these groups. Rule 100220 therefore chains off the four
 privileged-group rules and keeps only **additions**, at level 13.
+
+**Validated 2026-10-17:** adding a lab user to Domain Admins and removing it
+(`Add-ADGroupMember 'Domain Admins' crojas` → `Remove-ADGroupMember ...`)
+generated event 4728. The agent forwarded it and the manager fired **rule
+100220 (T1098)** on the addition — confirmed in `alerts.json` (see the
+evidence block above).
 
 ### T1087.002 — Domain account discovery
 No custom rule yet. Event 4662 is only logged when the queried AD objects

@@ -20,7 +20,7 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 |---|---|---|
 | **1 — Infrastructure** | Domain controller, `lab.local` forest, Nimbrek S.A. structure | ✅ Complete |
 | **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
-| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force (T1110.001) detected live |
+| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force, password spraying, Kerberoasting & privileged-group changes detected live |
 | **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | ⏳ Planned |
 | **5 — Hardening** | AD security audit with before/after measurement | ⏳ Planned |
 
@@ -251,9 +251,9 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 |---|---|---|---|
 | Brute force | T1110.001 | 4625 | ✅ detected live |
 | Password spraying | T1110.003 | 4625 / 4771 | ✅ detected live |
-| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ⏳ planned |
+| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ✅ detected live |
 | Domain account discovery | T1087.002 | 4661 / 4662 | ⏳ planned |
-| Privileged group changes | T1098 | 4728 / 4732 / 4756 | ⏳ planned |
+| Privileged group changes | T1098 | 4728 / 4732 / 4756 | ✅ detected live |
 
 Full technique-by-technique breakdown with detection logic and evidence:
 [`docs/mitre_attack_mapping.md`](docs/mitre_attack_mapping.md).
@@ -273,8 +273,8 @@ Deliverables:
 - [x] Advanced audit policy script ([`scripts/Enable-AuditPolicies.ps1`](scripts/Enable-AuditPolicies.ps1))
 - [x] Custom Wazuh rules for brute force, password spraying (NTLM and Kerberos), Kerberoasting and privileged group changes ([`rules/local_rules.xml`](rules/local_rules.xml)), aligned with the Wazuh 4.9.2 ruleset
 - [x] End-to-end validation: brute force (T1110.001) fired by a real attack, alert captured from `alerts.json`
-- [ ] Validate password spraying and Kerberoasting detections
-- [ ] Honeytoken service account to detect Kerberoasting with zero false positives
+- [x] End-to-end validation: password spraying (100201), Kerberoasting (100210) and privileged-group changes (100220) each fired by a real attack and captured in `alerts.json`
+- [x] Honeytoken service account (`svc_sql_backup`, RC4-only SPN `MSSQLSvc/db01.lab.local:1433`) used to trigger the Kerberoasting detection
 - [ ] Incident report per attack (timeline, IOCs, response)
 - [ ] AD hardening with before/after measurement
 
