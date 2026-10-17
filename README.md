@@ -275,7 +275,7 @@ Deliverables:
 - [x] End-to-end validation: brute force (T1110.001) fired by a real attack, alert captured from `alerts.json`
 - [x] End-to-end validation: password spraying (100201), Kerberoasting (100210) and privileged-group changes (100220) each fired by a real attack and captured in `alerts.json`
 - [x] Honeytoken service account (`svc_sql_backup`, RC4-only SPN `MSSQLSvc/db01.lab.local:1433`) used to trigger the Kerberoasting detection
-- [ ] Incident report per attack (timeline, IOCs, response)
+- [x] Incident report per attack (timeline, IOCs, response, hardening) — [`docs/incident-reports.md`](docs/incident-reports.md)
 - [ ] AD hardening with before/after measurement
 
 ---
