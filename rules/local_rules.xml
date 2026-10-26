@@ -28,16 +28,27 @@
 <group name="nimbrek,active_directory,attack,">
 
   <!--
-    T1110.001 - Brute force (VALIDATED via built-in 60204)
-    Wazuh's built-in rule 60204 ("Multiple Windows Logon Failures") already
-    correlates repeated 4625 events per source IP. Instead of duplicating that
-    correlation, this rule chains off 60204 to raise the severity and attach
-    the Nimbrek context and the precise sub-technique. Chaining (if_sid) avoids
-    the frequency race where the native rule consumes the matched events first.
+    T1110.001 - Brute force (VALIDATED 2026-10-19)
+    Self-correlating detection: 8+ failed logons (event 4625 -> 60122) from the
+    same source IP within 240 s. This mirrors the proven pattern of rule 100201
+    (if_matched_sid 60122 + same_field ipAddress).
+
+    Why not chain off the built-in 60204? In this 4.9.2 install, 60204
+    ("Multiple Windows Logon Failures") did not fire for these events even with
+    a populated source IP: it uses <if_matched_group>authentication_failed</if_matched_group>,
+    whereas <if_matched_sid>60122</if_matched_sid> (as 100201 uses) correlates
+    reliably. So 100200 was rewritten to self-correlate off 60122 instead of
+    depending on 60204.
+
+    Distinct from 100201 (spraying): 100200 counts repeated failures against one
+    or few accounts from a single IP (same_field ipAddress only); 100201 counts
+    failures spread across 6+ different accounts (adds different_field
+    targetUserName). Same user hammered -> 100200; many users sprayed -> 100201.
   -->
-  <rule id="100200" level="12">
-    <if_sid>60204</if_sid>
-    <description>Nimbrek: brute force against domain controller - multiple failed logons from $(win.eventdata.ipAddress)</description>
+  <rule id="100200" level="12" frequency="8" timeframe="240">
+    <if_matched_sid>60122</if_matched_sid>
+    <same_field>win.eventdata.ipAddress</same_field>
+    <description>Nimbrek: brute force against domain controller - 8+ failed logons from $(win.eventdata.ipAddress)</description>
     <mitre>
       <id>T1110.001</id>
     </mitre>

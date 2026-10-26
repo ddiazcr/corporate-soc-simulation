@@ -11,7 +11,7 @@ validated end-to-end.
 
 | Tactic | Technique | ID | Windows event | Wazuh rule | Status |
 |---|---|---|---|---|---|
-| Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | built-in 60204 → 100200 (level 12) | ✅ validated (60204); 100200 pending re-test |
+| Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | 60122 → 100200 (level 12) | ✅ validated (100200) |
 | Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ✅ validated (100201, NTLM) |
 | Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12) | ✅ validated (100210) |
 | Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | not written yet (needs SACLs on AD objects) | ⏳ pending |
@@ -22,22 +22,35 @@ validated end-to-end.
 ### T1110.001 — Brute force (rule 100200) — ✅ validated
 A single source IP producing **multiple failed logons (event 4625) in a short
 window** is flagged. This catches an attacker hammering one or a few accounts
-with a password list. Wazuh's built-in rule **60204 — "Multiple Windows Logon
-Failures"** already correlates the raw `4625 → 60122` events; the custom rule
-**100200** chains off 60204 (`if_sid`) to raise the level to 12 and attach the
-Nimbrek context and the precise sub-technique **T1110.001**.
+with a password list. Rule **100200** self-correlates off `60122` (the
+`4625` logon-failure rule): **8+ failures from the same `ipAddress` in 240 s**
+(`if_matched_sid` 60122 + `same_field` ipAddress), at level 12. This is the
+same proven pattern as rule 100201.
 
-**Validated 2026-10-14:** 10 failed SMB authentications generated from the DC
-(`net use \\192.168.56.10\ipc$` with wrong credentials) produced event 4625
-(logon type 3) on the domain controller, forwarded by the Wazuh agent, and
-fired alert **60204 (level 10)** — captured in `alerts.json`. See
-[`docs/img/20-alert-60204-bruteforce.jpg`](img/20-alert-60204-bruteforce.jpg).
+**Validated 2026-10-19:** 10 failed SMB authentications were generated from
+**Kali (`192.168.56.103`)** against `crojas` on the DC (`netexec smb` with
+wrong passwords). Each produced event **4625** (logon type 3) carrying the real
+source IP `192.168.56.103`; the agent forwarded them and the manager fired
+rule **100200 (T1110.001, level 12)** — confirmed in `alerts.json`:
 
-**Pending:** the capture shows the built-in 60204, not the custom 100200. The
-first version of the rule file also referenced fields as `data.win.*`, which
-is the indexed-alert path and is never populated inside rules. With the field
-names fixed, the test will be repeated from Kali (`192.168.56.103`) so the
-alert carries a real attacker IP and shows rule **100200** at level 12.
+```bash
+grep '"id":"100200"' /var/ossec/logs/alerts/alerts.json | tail -1 | jq \
+  '{rule:.rule.id, level:.rule.level, mitre:.rule.mitre.id,
+    ip:.data.win.eventdata.ipAddress}'
+# { "rule": "100200", "level": 12, "mitre": ["T1110.001"], "ip": "192.168.56.103" }
+```
+
+**Root cause of the earlier failure (documented for the record).** The first
+version chained off the built-in **60204** (`if_sid 60204`). In this 4.9.2
+install 60204 never fired for these events, even once the source IP was real
+and populated: 60204 correlates with `<if_matched_group>authentication_failed</if_matched_group>`,
+which did not group these 4625 events here, whereas rule 100201 — using
+`<if_matched_sid>60122</if_matched_sid>` — correlated reliably. 100200 was
+therefore rewritten to self-correlate off 60122, matching the working pattern.
+A second factor delayed detection: the only 60204 that ever fired was on
+2026-10-14, two days before 100200 was deployed to the manager (2026-10-16),
+and the manager was later down with a full disk (see incident reports), so no
+brute-force test reached a working manager until the 2026-10-19 Kali run.
 
 ### T1110.003 — Password spraying (rules 100201, 100202, 100203)
 Spraying is the inverse of brute force: **one or few passwords tried across

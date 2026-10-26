@@ -21,7 +21,7 @@ scastro, dherrera, lsoto` (plus `Administrator`, `krbtgt`, `Guest`).
 
 | ID | Date | Technique | MITRE | Windows event | Wazuh rule | Severity |
 |---|---|---|---|---|---|---|
-| INC-001 | 2026-10-14 | Brute force (password guessing) | T1110.001 | 4625 | 60204 → 100200 | Medium |
+| INC-001 | 2026-10-19 | Brute force (password guessing) | T1110.001 | 4625 | 60122 → 100200 | Medium |
 | INC-002 | 2026-10-16 | Password spraying | T1110.003 | 4625 | 100201 | High |
 | INC-003 | 2026-10-17 | Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 | High |
 | INC-004 | 2026-10-17 | Privileged-group manipulation | T1098 | 4728 | 100220 | Critical |
@@ -38,15 +38,23 @@ the domain controller, consistent with an attacker trying a password list
 against one or a few accounts.
 
 **Timeline.**
-- `2026-10-14` — 10 failed SMB authentications generated against DC01
-  (`net use \\192.168.56.10\ipc$` with wrong credentials). Each produced
-  event **4625** (logon type 3, failure).
+- `2026-10-19` — 10 failed SMB authentications generated from **Kali
+  (`192.168.56.103`)** against `crojas` on DC01 (`netexec smb` with wrong
+  passwords). Each produced event **4625** (logon type 3, failure) carrying the
+  real source IP.
 
-**Detection.** Wazuh's built-in rule **60204 — "Multiple Windows Logon
-Failures"** correlated the `4625 → 60122` events; the custom rule **100200**
-chains off 60204 (`if_sid`) to raise the level to 12 and attach the Nimbrek
-context and sub-technique **T1110.001**. Alert captured in `alerts.json` /
-`docs/img/20-alert-60204-bruteforce.jpg`.
+**Detection.** Rule **100200** self-correlates off `60122` (the 4625
+logon-failure rule): **8+ failures from the same `ipAddress` in 240 s**
+(`if_matched_sid` 60122 + `same_field` ipAddress), at level 12, mapped to
+**T1110.001**. Alert confirmed in `alerts.json` (rule 100200, level 12,
+T1110.001, ip 192.168.56.103).
+
+> **Root cause note.** The first version of 100200 chained off the built-in
+> **60204** (`if_sid 60204`), which never fired for these events in this 4.9.2
+> install even with a real source IP — 60204 uses `if_matched_group`, which did
+> not group these 4625s here, while `if_matched_sid` (as rule 100201 uses) did.
+> 100200 was rewritten to self-correlate off 60122. See
+> [`mitre_attack_mapping.md`](mitre_attack_mapping.md) for the full analysis.
 
 **IOCs (lab).** Repeated 4625 (logon type 3), same source, short time window;
 target account(s) with many consecutive failures and no matching success.
@@ -61,13 +69,12 @@ accounts; no containment needed in the lab.
 **Hardening / recommendations.**
 - Enforce account lockout policy (threshold + observation window) and smart
   lockout where available.
-- Alert on *N* failed logons per source IP within a short window (already
-  covered by 60204 → 100200).
+- Alert on *N* failed logons per source IP within a short window (covered by
+  rule 100200: 8 failures / same IP / 240 s).
 - Prefer phishing-resistant MFA for privileged and remote-accessible accounts.
 
-**Follow-up.** Re-run from a distinct attacker host so the alert carries a real
-source IP and shows rule **100200** at level 12 (today's capture shows the
-built-in 60204).
+**Follow-up.** Resolved — validated end-to-end from Kali on 2026-10-19 (see
+Detection above).
 
 ---
 
@@ -195,9 +202,30 @@ membership was active).
 
 | Technique | Rule | Status |
 |---|---|---|
-| T1110.001 Brute force | 60204 → 100200 | detected (60204 live; 100200 re-test pending) |
+| T1110.001 Brute force | 60122 → 100200 | ✅ validated live (2026-10-19, from Kali) |
 | T1110.003 Password spraying | 100201 | ✅ validated live |
 | T1558.003 Kerberoasting | 100210 | ✅ validated live |
 | T1098 Privileged-group | 100220 | ✅ validated live |
 
 Full detection logic and evidence: [`mitre_attack_mapping.md`](mitre_attack_mapping.md).
+
+## Operational incident — SIEM manager down (full disk)
+
+On 2026-10-18 the Wazuh manager silently stopped: its root filesystem reached
+**100 %**, driven by the vulnerability-detector feed cache
+(`/var/ossec/queue/vd_updater/tmp` held 12 GB of downloads that never complete
+offline). With the manager down, alert rotation failed and the alert files for
+**2026-10-17 and 2026-10-18 were left at 0 bytes**, so the on-disk evidence for
+the Kerberoasting (100210) and privileged-group (100220) detections validated
+on 2026-10-17 was lost. The rules themselves were unaffected.
+
+**Resolution (2026-10-19).** Cleared the feed cache, restarted the manager
+clean, and **disabled the vulnerability detector** in `ossec.conf` (it cannot
+update in an offline host-only lab and was the root cause here, as in the
+Phase 2 disk incident). Brute force (100200) was then validated from Kali, and Kerberoasting (100210)
+and privileged-group (100220) were re-run and re-validated the same day,
+regenerating their evidence on the healthy manager.
+
+**Lesson.** Monitor the monitoring stack. A SIEM that stops ingesting fails
+silently — you believe you have coverage while blind. Disk and service health
+of the manager deserve their own alerting.
