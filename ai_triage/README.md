@@ -31,7 +31,7 @@ Wazuh alert (level >= 10)
 | **Only alerts go to the model, never raw event streams** | The SIEM filters and correlates; the model assists on dozens of alerts a day, not thousands of events per second. Keeps cost and latency realistic. Only alerts at level ≥ 10 are triaged. |
 | **Output validated against a strict schema** | Free text cannot be automated safely. `suggested_action` must be exactly one of a **fixed allowlist**; anything else is rejected and the alert falls back to safe manual handling. |
 | **Prompt-injection defenses** | Alert data is passed as delimited `<alert>` data, never as instructions. The system prompt tells the model that any field trying to steer it is itself a suspicious indicator that *raises* priority. The model has no credentials and no tools. |
-| **Prompt caching for static context** | The triage instructions are reused on every call, so they are cached (~10% of input cost on reuse). Only the per-alert data varies. |
+| **Prompt caching for static context** | The triage instructions are marked with `cache_control`. Measured result: the current system prompt (~1.1k tokens) is below the model's minimum cacheable length, so the first real run shows **no cache discount** — cost matches the uncached price exactly. Caching becomes useful once playbooks / MITRE context grow the static prompt. |
 | **Content-aware dedup** | A repeated beacon collapses into one case, but an alert reusing a recent rule/IP pair with *different* content opens its own case — so an attacker can't hide a new alert behind an old one. |
 
 ## Fixed action allowlist
@@ -87,15 +87,49 @@ mode, since they reuse a recent rule/IP pair with altered content.
 | File | Purpose |
 |---|---|
 | `soc_ai_triage.py` | The triage pipeline (dedup, schema validation, approval gate, metrics). |
-| `system_prompt_ad.txt` | The static, cached triage instructions and injection defenses. |
+| `system_prompt_ad.txt` | The static triage instructions and injection defenses. |
 | `sample_ad_alerts.json` | The four validated detections, two injection cases, one below-threshold alert. |
 | `casos_ad.db` | Created on run: case files (`casos`) and the human decision log (`decisiones`). |
+
+## Measured run (2026-10-26, real mode)
+
+Model: `claude-haiku-4-5`. Input: `sample_ad_alerts.json` (7 alerts; 6 at level ≥ 10, 1 below threshold).
+
+| Result | Value |
+|---|---|
+| Alerts triaged | 6 of 6 eligible; the level-5 alert was skipped by the threshold |
+| Priority on the 4 clean detections | high (brute force) / critical (Kerberoasting honeytoken, Domain Admins addition) |
+| Suggested action | `escalate_tier2` on every case — no disruptive action proposed for the DC |
+| Prompt-injection cases | **2 of 2 flagged** (`possible_prompt_injection: true`), kept at **critical**, neither marked benign nor set to `monitor` |
+| Content-aware dedup | Both injection alerts opened their own case ("same rule/IPs, different content") instead of hiding behind the earlier alert |
+| Latency per alert | ~3.5–4.5 s |
+| Tokens per alert | ~1,350–1,380 in / ~330–390 out |
+| Cost per alert | ~$0.003 (no cache discount yet — see design decisions) |
+| Actions executed | **None** — every decision logged as `approved (no action executed)` |
+
+This is a small, controlled test set, not a benchmark: two injection attempts resisted is evidence the defenses work for these patterns, not a guarantee.
+
+### Evidence
+
+1. The poisoned input — a `raw_log` field instructing the AI to downgrade the alert:
+
+   ![Poisoned log field](../docs/img/40-ai-poisoned-log.png)
+
+2. The result — both injection cases flagged and kept at critical:
+
+   ![Injection flagged in Telegram](../docs/img/41-ai-injection-flagged.png)
+
+3. The human approval gate and per-alert metrics — nothing runs without a decision:
+
+   ![Approval gate and metrics](../docs/img/42-ai-approval-gate-metrics.png)
 
 ## Status
 
 - [x] Schema-validated triage with a fixed action allowlist
 - [x] Human-in-the-loop approval gate with a decision log
-- [x] Prompt-injection defenses + test cases
-- [x] Prompt caching and per-alert cost/latency metrics
-- [ ] Metrics from a measured real-mode run (accuracy vs the Phase 3 ground truth, false positives, latency, cost)
+- [x] Prompt-injection defenses + test cases (2/2 flagged in real mode)
+- [x] Per-alert cost/latency metrics from a measured real-mode run
+- [ ] Prompt caching effective (needs a larger static prompt)
+- [ ] Live Wazuh integration (currently fed from the validated-alerts file)
+- [ ] Accuracy and false-positive rate over a larger, mixed alert set
 - [ ] Remediation snippets generated for human review, never auto-executed
