@@ -38,6 +38,15 @@ import sqlite3
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+# Use the OS trust store (e.g. the Windows certificate store) when available, so
+# HTTPS works behind antivirus / corporate TLS inspection without ever disabling
+# verification. No-op if truststore is not installed.
+try:
+    import truststore
+    truststore.inject_into_ssl()
+except Exception:
+    pass
+
 DB_PATH = "casos_ad.db"
 DEDUP_WINDOW_MINUTES = 10
 MIN_LEVEL = 10  # only alerts at or above this Wazuh level are triaged
@@ -215,27 +224,41 @@ def analizar_con_ia(alerta):
         metricas = {"latencia_s": round(time.monotonic() - inicio, 3), "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}
         return validar_esquema(analisis), metricas
 
-    import anthropic
+    import requests
 
-    client = anthropic.Anthropic()
-    # The static triage instructions are marked for prompt caching, so repeated
-    # alerts reuse them at ~10% of the input cost; only the per-alert data varies.
-    # Only the alert goes in the user turn, delimited as data, never as instructions.
-    msg = client.messages.create(
-        model=MODEL,
-        max_tokens=600,
-        system=[{
-            "type": "text",
-            "text": cargar_system_prompt(),
-            "cache_control": {"type": "ephemeral"},
-        }],
-        messages=[{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
+    # Call the Messages API directly with requests, which avoids the SDK's own
+    # HTTP client (httpx) — handy when that client cannot connect on a given
+    # machine even though plain requests/curl can. The static triage
+    # instructions are marked for prompt caching, so repeated alerts reuse them
+    # at ~10% of the input cost; only the per-alert data varies, and it goes in
+    # the user turn delimited as data, never as instructions.
+    resp = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        json={
+            "model": MODEL,
+            "max_tokens": 600,
+            "system": [{
+                "type": "text",
+                "text": cargar_system_prompt(),
+                "cache_control": {"type": "ephemeral"},
+            }],
+            "messages": [{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
+        },
+        timeout=40,
     )
-    analisis = validar_esquema(parsear_json_ia(msg.content[0].text))
-    u = msg.usage
-    ti, to = u.input_tokens, u.output_tokens
-    cache_read = getattr(u, "cache_read_input_tokens", 0) or 0
-    cache_write = getattr(u, "cache_creation_input_tokens", 0) or 0
+    resp.raise_for_status()
+    data = resp.json()
+    analisis = validar_esquema(parsear_json_ia(data["content"][0]["text"]))
+    u = data.get("usage", {})
+    ti = u.get("input_tokens", 0)
+    to = u.get("output_tokens", 0)
+    cache_read = u.get("cache_read_input_tokens", 0) or 0
+    cache_write = u.get("cache_creation_input_tokens", 0) or 0
     # Cache reads bill at ~0.1x input, cache writes at ~1.25x input.
     costo = (ti * PRECIO_ENTRADA + to * PRECIO_SALIDA
              + cache_read * PRECIO_ENTRADA * 0.1 + cache_write * PRECIO_ENTRADA * 1.25)

@@ -54,10 +54,14 @@ python3 soc_ai_triage.py sample_ad_alerts.json
 `system_prompt_ad.txt` in this folder:
 
 ```bash
-pip install anthropic
+pip install requests truststore
 export ANTHROPIC_API_KEY=sk-ant-...
 AI_MODE=REAL python3 soc_ai_triage.py sample_ad_alerts.json
 ```
+
+Real mode calls the Messages API with `requests` (no SDK), and `truststore`
+lets Python use the OS certificate store so HTTPS works behind antivirus or
+corporate TLS inspection.
 
 Optional Telegram notifications: set `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`;
 without them, the summary prints to the console.
