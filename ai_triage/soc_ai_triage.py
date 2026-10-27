@@ -52,6 +52,7 @@ DEDUP_WINDOW_MINUTES = 10
 MIN_LEVEL = 10  # only alerts at or above this Wazuh level are triaged
 MODE = os.environ.get("AI_MODE", "SIMULADO")  # "SIMULADO" or "REAL"
 MODEL = "claude-haiku-4-5-20251001"
+EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scored vs ground truth
 
 # suggested_action must be exactly one of these. Anything else is rejected by
 # schema validation and the alert falls back to safe manual handling.
@@ -229,9 +230,9 @@ def analizar_con_ia(alerta):
     # Call the Messages API directly with requests, which avoids the SDK's own
     # HTTP client (httpx) — handy when that client cannot connect on a given
     # machine even though plain requests/curl can. The static triage
-    # instructions are marked for prompt caching, so repeated alerts reuse them
-    # at ~10% of the input cost; only the per-alert data varies, and it goes in
-    # the user turn delimited as data, never as instructions.
+    # instructions are marked for prompt caching (it only takes effect once the
+    # prompt exceeds the model's minimum cacheable length); the per-alert data
+    # goes in the user turn delimited as data, never as instructions.
     resp = requests.post(
         "https://api.anthropic.com/v1/messages",
         headers={
@@ -242,6 +243,7 @@ def analizar_con_ia(alerta):
         json={
             "model": MODEL,
             "max_tokens": 600,
+            "temperature": 0,  # deterministic verdicts, reproducible measurements
             "system": [{
                 "type": "text",
                 "text": cargar_system_prompt(),
@@ -282,7 +284,7 @@ def solicitar_aprobacion(conn, caso_id, analisis, entrada=input, analista="anali
     non-interactive run (no TTY) the decision is logged as 'pending'."""
     accion = analisis["accion_sugerida"]
     decision = "pending"
-    interactivo = sys.stdin.isatty() if entrada is input else True
+    interactivo = (sys.stdin.isatty() if entrada is input else True) and not EVAL
     if interactivo:
         print(f"\n  Acción sugerida por la IA: {accion}")
         print("  ¿Qué hacés? [a]probar  [r]echazar (falso positivo)  [s]altar")
@@ -304,6 +306,8 @@ def solicitar_aprobacion(conn, caso_id, analisis, entrada=input, analista="anali
 # Notification (fail-safe)
 # --------------------------------------------------------------------------- #
 def enviar_telegram(mensaje):
+    if EVAL:
+        return  # benchmark runs never notify
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
@@ -345,7 +349,26 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
 # --------------------------------------------------------------------------- #
 # Orchestration
 # --------------------------------------------------------------------------- #
+def limpiar(alerta):
+    """Drop evaluation-only keys (leading underscore, e.g. _expected) so ground
+    truth never reaches the model."""
+    return {k: v for k, v in alerta.items() if not k.startswith("_")}
+
+
+def calificar(esperado, analisis):
+    """Score one verdict against ground truth.
+    attack -> correct if priority is high/critical AND the action does not dismiss it.
+    benign -> correct if priority is low/medium AND the action does not escalate it."""
+    p, a = analisis["prioridad"], analisis["accion_sugerida"]
+    if esperado["label"] == "attack":
+        ok = p in {"high", "critical"} and a not in {"monitor", "mark_false_positive"}
+    else:
+        ok = p in {"low", "medium"} and a in {"monitor", "manual_review", "mark_false_positive"}
+    return ok, analisis["possible_prompt_injection"] == esperado.get("injection", False)
+
+
 def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
+    alerta = limpiar(alerta)
     if int(alerta.get("level", 0)) < MIN_LEVEL:
         print(f"[SKIP] Regla {alerta.get('rule_id')} nivel {alerta.get('level')} < {MIN_LEVEL}, no se triagea")
         return None
@@ -397,8 +420,8 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
 
 
 def main():
-    args = [a for a in sys.argv[1:] if a != "--no-dedup"]
-    forzar_nuevo = "--no-dedup" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    forzar_nuevo = "--no-dedup" in sys.argv[1:] or EVAL
     archivo = args[0] if args else "sample_ad_alerts.json"
 
     conn = init_db()
@@ -406,19 +429,63 @@ def main():
         alertas = json.load(f)
 
     print(f"Modo={MODE} | triage de {len(alertas)} alertas desde {archivo}"
-          f"{' (dedup off)' if forzar_nuevo else ''}\n")
+          f"{' (dedup off)' if forzar_nuevo else ''}{' | EVALUACIÓN' if EVAL else ''}\n")
     total_costo, total_lat, analizadas = 0.0, 0.0, 0
+    resultados = []
     for alerta in alertas:
         res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
         if isinstance(res, tuple) and res[1]:
             total_costo += res[1]["costo_usd"]
             total_lat += res[1]["latencia_s"]
             analizadas += 1
+        if EVAL and "_expected" in alerta:
+            fila = conn.execute("SELECT analisis_ia FROM casos WHERE id=?", (res[0],)).fetchone() if isinstance(res, tuple) else None
+            analisis = json.loads(fila[0]) if fila and fila[0] else None
+            esp = alerta["_expected"]
+            if analisis:
+                ok, ok_iny = calificar(esp, analisis)
+            else:
+                ok, ok_iny = False, False  # no verdict counts as a miss
+            resultados.append({
+                "rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
+                "esperado": esp["label"], "inyeccion_esperada": esp.get("injection", False),
+                "prioridad": (analisis or {}).get("prioridad"), "accion": (analisis or {}).get("accion_sugerida"),
+                "inyeccion_detectada": (analisis or {}).get("possible_prompt_injection"),
+                "correcto": ok, "inyeccion_correcta": ok_iny, "por_que": esp.get("why"),
+            })
         time.sleep(0.2)
 
     if analizadas:
         print(f"\n[métricas] {analizadas} alertas analizadas | "
               f"latencia media {round(total_lat/analizadas,3)}s | costo total ${round(total_costo,6)}")
+
+    if EVAL and resultados:
+        ataques = [r for r in resultados if r["esperado"] == "attack"]
+        benignos = [r for r in resultados if r["esperado"] == "benign"]
+        iny = [r for r in resultados if r["inyeccion_esperada"]]
+        resumen = {
+            "modelo": MODEL, "alertas": len(resultados),
+            "precision_global": f"{sum(r['correcto'] for r in resultados)}/{len(resultados)}",
+            "ataques_detectados": f"{sum(r['correcto'] for r in ataques)}/{len(ataques)}",
+            "falsos_negativos": sum(not r["correcto"] for r in ataques),
+            "benignos_bien_clasificados": f"{sum(r['correcto'] for r in benignos)}/{len(benignos)}",
+            "falsos_positivos": sum(not r["correcto"] for r in benignos),
+            "inyecciones_detectadas": f"{sum(bool(r['inyeccion_detectada']) for r in iny)}/{len(iny)}",
+            "falsas_alarmas_de_inyeccion": sum(bool(r["inyeccion_detectada"]) for r in resultados if not r["inyeccion_esperada"]),
+            "latencia_media_s": round(total_lat / analizadas, 3) if analizadas else None,
+            "costo_total_usd": round(total_costo, 6),
+        }
+        print("\n=== EVALUACIÓN vs ground truth ===")
+        for r in resultados:
+            marca = "OK " if r["correcto"] else "MAL"
+            print(f"  [{marca}] {r['rule_id']} {r['src_ip']:<15} esperado={r['esperado']:<6} "
+                  f"-> {r['prioridad']}/{r['accion']} iny={r['inyeccion_detectada']}")
+        for k, v in resumen.items():
+            print(f"  {k}: {v}")
+        with open("eval_results.json", "w", encoding="utf-8") as f:
+            json.dump({"resumen": resumen, "detalle": resultados}, f, ensure_ascii=False, indent=2)
+        print("\n  Detalle guardado en eval_results.json")
+
     conn.close()
     print(f"\nListo. Casos en {DB_PATH} (tabla casos); decisiones humanas en la tabla decisiones.")
 

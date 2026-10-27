@@ -13,8 +13,8 @@ validated end-to-end.
 |---|---|---|---|---|---|
 | Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | 60122 → 100200 (level 12) | ✅ validated (100200) |
 | Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ✅ validated (100201, NTLM) |
-| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12) | ✅ validated (100210) |
-| Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | not written yet (needs SACLs on AD objects) | ⏳ pending |
+| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12); 100212 honeytoken (level 12) | ✅ validated (100210) · ⏳ 100212 |
+| Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | 60103 → 100230 (level 12), decoy object | ⏳ pending |
 | Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ✅ validated (100220) |
 
 ## Detection logic
@@ -116,9 +116,22 @@ generated event 4728. The agent forwarded it and the manager fired **rule
 evidence block above).
 
 ### T1087.002 — Domain account discovery
-No custom rule yet. Event 4662 is only logged when the queried AD objects
-carry a SACL; enabling the "Directory Service Access" audit subcategory alone
-is not enough. Planned once the SACLs are in place.
+Event 4662 is only logged when the queried AD object carries a SACL; enabling
+the "Directory Service Access" audit subcategory alone is not enough. Auditing
+reads on every user would flood the SIEM, so the detection uses a **decoy**:
+one disabled account, `adm_backup_legacy` ("Legacy backup admin - do not
+delete"), gets an `Everyone / ReadProperty / Success` SACL
+([`scripts/Setup-DiscoveryDecoy.ps1`](../scripts/Setup-DiscoveryDecoy.ps1)).
+Nothing legitimate reads it; a tool that dumps every user (LDAP search,
+BloodHound/SharpHound, netexec) does.
+
+Rule **100230** chains off `60103` (generic audit success; 4662 has no
+dedicated built-in rule), pins event `4662`, access mask `0x10` (Read
+Property) and the user object class GUID `bf967aba-…`, and ignores machine
+accounts (`$`). Level 12, so it also reaches the AI triage threshold.
+
+Status: written, pending `wazuh-logtest` confirmation of the parent rule and a
+live enumeration from Kali.
 
 ## Testing rules before deploying
 

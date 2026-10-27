@@ -15,6 +15,7 @@
     60204  multiple logon failures from one IP (8 in 240 s)
     60104  generic audit failure (4771 has no dedicated built-in rule)
     60106  logon success, which also covers 4769 service tickets
+    60103  generic audit success (4662 directory-service access)
     60154 / 60159 / 60166 / 60167  Administrators / Domain Admins /
            Schema Admins / Enterprise Admins group changed
 
@@ -127,6 +128,45 @@
       <id>T1558.003</id>
     </mitre>
     <group>kerberos,</group>
+  </rule>
+
+  <!--
+    T1558.003 - Kerberoasting against the honeytoken (single request).
+    svc_sql_backup exists only as a tripwire, so ONE ticket request for it is
+    already high-fidelity; it must not wait for the 5-service burst of 100211.
+    Level 12 so it reaches the AI triage threshold (>= 10).
+  -->
+  <rule id="100212" level="12">
+    <if_sid>100210</if_sid>
+    <field name="win.eventdata.serviceName">^svc_sql_backup$</field>
+    <description>Nimbrek: Kerberos ticket requested for honeytoken svc_sql_backup from $(win.eventdata.ipAddress) - Kerberoasting</description>
+    <mitre>
+      <id>T1558.003</id>
+    </mitre>
+    <group>kerberos,honeytoken,</group>
+  </rule>
+
+  <!--
+    T1087.002 - Domain account discovery via a decoy object.
+    Only the decoy account adm_backup_legacy carries a "Read Property" SACL
+    (scripts/Setup-DiscoveryDecoy.ps1), so a 4662 read (access mask 0x10) on a
+    user-class object (bf967aba-...) means something enumerated it: LDAP
+    dumps, BloodHound/SharpHound, netexec user listing. Machine accounts ($) are
+    excluded to ignore the DC's own housekeeping.
+    Parent 60103 = generic Windows audit success (4662 has no dedicated rule);
+    confirm with wazuh-logtest before deploying.
+  -->
+  <rule id="100230" level="12">
+    <if_sid>60103</if_sid>
+    <field name="win.system.eventID">^4662$</field>
+    <field name="win.eventdata.accessMask">^0x10$</field>
+    <field name="win.eventdata.objectType" type="pcre2">(?i)bf967aba-0de6-11d0-a285-00aa003049e2</field>
+    <field name="win.eventdata.subjectUserName" type="pcre2" negate="yes">\$$</field>
+    <description>Nimbrek: decoy account read in AD by $(win.eventdata.subjectUserName) - possible domain account discovery</description>
+    <mitre>
+      <id>T1087.002</id>
+    </mitre>
+    <group>discovery,honeytoken,</group>
   </rule>
 
   <!--

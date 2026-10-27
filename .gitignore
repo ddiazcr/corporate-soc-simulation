@@ -1,3 +1,5 @@
 
 # Phase 4 triage runtime DB
 ai_triage/*.db
+__pycache__/
+ai_triage/eval_results.json.bak
