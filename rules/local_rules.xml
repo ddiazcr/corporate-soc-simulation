@@ -187,4 +187,39 @@
     <group>account_changes,group_changed,</group>
   </rule>
 
+  <!--
+    T1546.008 - Event Triggered Execution: Accessibility Features.
+    The logon-screen accessibility helpers (sethc.exe sticky keys, utilman.exe
+    ease-of-access, osk, magnify, narrator, displayswitch) run as SYSTEM before
+    authentication. Replacing one with cmd.exe (or any change to it) is a classic
+    pre-auth SYSTEM backdoor - and is exactly the technique used to recover this
+    DC after its password was lost (see docs/incident-reports.md). These files
+    never change outside a Windows servicing event, so a FIM change is
+    high-fidelity.
+
+    Requires Wazuh FIM. Add to the DC agent's ossec.conf, inside <syscheck>:
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\sethc.exe</directories>
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\utilman.exe</directories>
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\osk.exe</directories>
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\Magnify.exe</directories>
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\Narrator.exe</directories>
+      <directories check_all="yes" realtime="yes">C:\Windows\System32\DisplaySwitch.exe</directories>
+    Parents 550 (checksum changed) and 554 (file added) are Wazuh's built-in FIM rules.
+
+    Registry variant (not file-based): an attacker can instead set a Debugger
+    value under HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File
+    Execution Options\sethc.exe. That is caught by event 4657 (registry value
+    set) or by Wazuh registry syscheck, and is tracked as a separate hardening
+    item rather than duplicated here.
+  -->
+  <rule id="100240" level="13">
+    <if_sid>550,554</if_sid>
+    <field name="file" type="pcre2">(?i)\\System32\\(sethc|utilman|osk|Magnify|Narrator|DisplaySwitch)\.exe$</field>
+    <description>Nimbrek: accessibility binary modified in System32 ($(file)) - possible T1546.008 sticky-keys/utilman backdoor</description>
+    <mitre>
+      <id>T1546.008</id>
+    </mitre>
+    <group>fim,persistence,privilege_escalation,pci_dss_11.5,</group>
+  </rule>
+
 </group>

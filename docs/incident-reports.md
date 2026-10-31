@@ -289,3 +289,64 @@ returned).
   count, the agent connection state, and the raw Security-event count each
   isolated one layer of the failure; checking them in order turned "nothing
   works" into a precise, one-line root cause.
+
+## Operational incident — locked out of the domain controller, recovered via WinRE (MITRE T1546.008)
+
+The previous incident left one fix pending: re-apply the DC's advanced audit
+policy through a GPO. That needs an interactive admin logon on DC01 — which was
+blocked. The `DC01\Administrator` password had been lost, and this single-DC
+forest has no second admin account and no recorded DSRM password: a
+self-inflicted lockout, and a reminder that a lab DC still needs break-glass.
+
+**What failed first.** Booting the Windows Server install media to use its
+repair console did not work. The attached eval ISO would show "Press any key to
+boot from CD" but never stage WinPE Setup — the boot chain fell through to the
+installed OS's Windows Boot Manager every time (the ISO's boot image appears
+incomplete). The VM is legacy BIOS, so the firmware honoured an explicit F12
+boot-device selection, but the media itself would not load Setup. Time lost to a
+recovery path that was never verified.
+
+**What worked.** The Windows Recovery Environment (WinRE) — on the system disk,
+independent of any ISO. Forcing WinRE (interrupt the boot before the success
+flag is written, a couple of times) → Troubleshoot → Advanced options → Command
+Prompt gives an offline SYSTEM shell. There the Windows volume mounts as `D:`
+(not `C:`), and logon-screen access was restored by swapping an **accessibility
+helper** binary for `cmd.exe`, keeping the originals as `*.bak`. At the logon
+screen the helper then opens a `SYSTEM` prompt, and `net user Administrator
+<new-pw>` resets the account — on a DC this writes to Active Directory, not a
+local SAM.
+
+Lab-specific snags, worth recording: the DC logon screen has **no Ease-of-Access
+button** and `Win+U` was swallowed by the host, so the `utilman.exe` trigger was
+dead; the Sticky-Keys path (`sethc.exe`, five Shift presses) was used instead.
+The WinRE console is a legacy host with no clipboard paste, so commands went in
+key-by-key, and the drive letter must be confirmed (`dir D:\Windows\System32`)
+before touching anything.
+
+**The point for a SOC: this recovery *is* an attack — T1546.008 (Event Triggered
+Execution: Accessibility Features).** The exact move used to get back into an
+owned box is how an attacker with one-time offline or physical access plants a
+**pre-authentication SYSTEM backdoor**: afterwards, anyone who reaches the locked
+logon screen gets SYSTEM with no credentials. On a domain controller that is a
+full-domain compromise. Two consequences:
+
+- **Cleanup is not optional.** The swapped binaries must be restored from the
+  `.bak` copies and ownership returned to `TrustedInstaller`; leaving them would
+  leave a backdoor on the DC.
+- **It is detectable — so we detect it.** New rule **100240** alerts on any
+  content change to the accessibility binaries (`sethc.exe`, `utilman.exe`,
+  `osk.exe`, `Magnify.exe`, `Narrator.exe`, `DisplaySwitch.exe`) in `System32`
+  via Wazuh FIM; these files never change outside a servicing event, so a
+  modification is high-fidelity. The registry (IFEO `Debugger`) variant is noted
+  alongside. See [`rules/local_rules.xml`](../rules/local_rules.xml) and
+  [`mitre_attack_mapping.md`](mitre_attack_mapping.md).
+
+**Lessons.**
+- **Break-glass before you need it.** Record the DSRM password and keep a second
+  emergency admin. One forgotten password cost far more than the task it blocked.
+- **Install media is not a recovery plan; WinRE is.** The ISO path burned time;
+  the on-disk recovery environment was always there. Verify the recovery path in
+  advance.
+- **Know the offensive use of your own tools.** The fastest way back in was an
+  attacker TTP — and having run T1546.008 once, then written the detection for
+  it, is worth more than reading about it.

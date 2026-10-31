@@ -254,6 +254,7 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 | Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ✅ detected live · single honeytoken request now level 12 (100212, pending validation) |
 | Domain account discovery | T1087.002 | 4662 (decoy object with a read SACL) | 🟡 rule written (100230), pending live validation |
 | Privileged group changes | T1098 | 4728 / 4732 / 4756 | ✅ detected live |
+| Accessibility-feature backdoor (sethc / utilman) | T1546.008 | FIM 550/554 on System32 helpers | 🟡 rule written (100240), pending FIM config & validation — arose from the DC [recovery incident](docs/incident-reports.md) |
 
 Full technique-by-technique breakdown with detection logic and evidence:
 [`docs/mitre_attack_mapping.md`](docs/mitre_attack_mapping.md).

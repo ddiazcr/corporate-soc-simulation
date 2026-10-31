@@ -16,6 +16,7 @@ validated end-to-end.
 | Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12); 100212 honeytoken (level 12) | ✅ validated (100210) · ⏳ 100212 |
 | Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | 60103 → 100230 (level 12), decoy object | ⏳ pending |
 | Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ✅ validated (100220) |
+| Persistence / Priv. Esc. | Event Triggered Execution: Accessibility Features | T1546.008 | FIM 550/554 (file change) / 4657 (IFEO) | 100240 (level 13), FIM on System32 helpers | ⏳ pending (FIM config) |
 
 ## Detection logic
 
@@ -132,6 +133,39 @@ accounts (`$`). Level 12, so it also reaches the AI triage threshold.
 
 Status: written, pending `wazuh-logtest` confirmation of the parent rule and a
 live enumeration from Kali.
+
+### T1546.008 — Accessibility Features backdoor (rule 100240) — ⏳ pending (FIM config)
+
+The Windows logon screen runs several accessibility helpers **as SYSTEM, before
+any user authenticates**: `sethc.exe` (Sticky Keys, five Shift presses),
+`utilman.exe` (the Ease-of-Access button / `Win+U`), `osk.exe`, `Magnify.exe`,
+`Narrator.exe`, `DisplaySwitch.exe`. Replacing any of them with `cmd.exe` (or
+pointing it at cmd via an IFEO `Debugger` value) turns that trigger into a
+**pre-authentication SYSTEM shell** — a persistence + privilege-escalation
+backdoor. On a domain controller it is a full-domain compromise. This lab met
+the technique first-hand: it was the method used to recover DC01 after its
+Administrator password was lost (see [incident reports](incident-reports.md)).
+
+**Detection.** These binaries do not change outside a Windows servicing event,
+so file integrity monitoring on them is high-signal and low-noise. Rule
+**100240** (level 13) fires on Wazuh FIM events **550** (checksum changed) and
+**554** (file added) whose `file` path matches one of the helpers under
+`System32`. It requires the DC agent's `ossec.conf` to watch those files under
+`<syscheck>` (the exact `<directories>` lines are in the rule's comment in
+`local_rules.xml`); that FIM config is the one piece still pending before the
+rule can be validated end-to-end.
+
+**Validation plan.** With FIM configured, modify a copy of a helper
+(`copy /y cmd.exe C:\Windows\System32\osk.exe`, then restore from `.bak`) and
+confirm rule 100240 in `alerts.json`. In fact, restoring the two helpers that
+were swapped during the recovery is itself the first real `550` event this rule
+should catch.
+
+**Registry variant.** Instead of replacing the file, an attacker can set a
+`Debugger` value under `…\Image File Execution Options\sethc.exe`. That is not a
+file change, so 100240 misses it by design; it surfaces as event **4657**
+(registry value set) or via Wazuh registry syscheck, and is tracked as a
+separate hardening item.
 
 ## Testing rules before deploying
 
