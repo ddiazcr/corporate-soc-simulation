@@ -229,3 +229,63 @@ regenerating their evidence on the healthy manager.
 **Lesson.** Monitor the monitoring stack. A SIEM that stops ingesting fails
 silently — you believe you have coverage while blind. Disk and service health
 of the manager deserve their own alerting.
+
+## Operational incident — detections went silent after a VM resume (time skew → agent down → audit policy reverted)
+
+After the lab VMs were left suspended for a few days and then resumed from
+their VirtualBox **saved state**, the AD detections stopped producing any
+alerts. Attacks replayed from Kali (account enumeration, Kerberoasting) showed
+nothing in the SIEM or the AI-triage feed. The investigation unwound three
+stacked faults, each hiding the next.
+
+**Symptom.** `alerts.json` held 732 alerts but **zero** Nimbrek rules
+(`1002xx`), and **zero** Windows Security events (`4625 / 4662 / 4769 / 4728`)
+from the domain controller, even while the Kali attacks clearly succeeded on
+the host side (the enumeration read the decoy account; the honeytoken SPN was
+returned).
+
+**Root-cause chain (top to bottom):**
+
+1. **Clock skew from the saved state.** A VirtualBox saved state freezes the
+   guest clock. On resume the Wazuh manager's clock was **~3 days behind**
+   real time (`date` → Oct 27 while the host was Oct 30), and the DC, which had
+   cold-booted, was ~1 h off the manager. Kerberos is the first casualty:
+   `impacket-GetUserSPNs` failed with `KRB_AP_ERR_SKEW (Clock skew too great)`
+   because the Kali↔DC clocks were more than 5 minutes apart.
+2. **Wazuh agent disconnected.** With the manager's clock jumped backwards, the
+   DC agent showed `Disconnected` in `agent_control -l` — no telemetry reached
+   the manager, so no rule could fire regardless of how it was written.
+3. **Advanced audit policy reverted on reboot.** Once the manager clock was
+   corrected the agent reconnected on its own (TCP ESTABLISHED to `:1514`, DC
+   events flowing again — 27 agent alerts), **but still no `4662/4769/4625/4728`**.
+   The advanced audit subcategories (Directory Service Access, Logon, Kerberos
+   Service Ticket Operations, Security Group Management) had been enabled with
+   **local `auditpol`**, which a Group Policy refresh (`gpupdate`, which runs on
+   boot) silently reverts to the domain default. With auditing off, the DC
+   generates none of the Security events the detections depend on.
+
+**Resolution.**
+- Set the Wazuh manager's clock back to real time and restarted the manager
+  (`date -s … ; hwclock -w ; systemctl restart wazuh-manager`); the DC agent
+  reconnected automatically.
+- Remaining fix (pending DC access): re-apply the advanced audit policy on the
+  DC and, crucially, **enforce it through a GPO linked to the Domain
+  Controllers OU** instead of local `auditpol`, so it survives reboots and
+  policy refreshes. Sync all guest clocks (host-only network has no NTP, so the
+  DC — the domain time authority — must be set correctly, with Kali synced to
+  it via `net time set -S <dc>` before any Kerberos-based attack).
+
+**Lessons.**
+- **Saved states and security labs don't mix for time-sensitive telemetry.**
+  Resume freezes clocks; Kerberos, agent enrollment and alert timestamps all
+  break on skew. Prefer a clean boot, or force a time-sync (Guest Additions
+  `--timesync-set-start`, or NTP where a route exists) immediately on resume.
+- **Audit policy on a domain controller belongs in a GPO, not local
+  `auditpol`.** Local settings are overwritten by the next policy refresh. If
+  the telemetry a detection needs isn't being generated, the best-written rule
+  in the world produces nothing — always confirm the event reaches the SIEM
+  before blaming the rule.
+- **Diagnose from the event backwards, not the rule forwards.** The rule hit
+  count, the agent connection state, and the raw Security-event count each
+  isolated one layer of the failure; checking them in order turned "nothing
+  works" into a precise, one-line root cause.
