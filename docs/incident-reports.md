@@ -268,12 +268,32 @@ returned).
 - Set the Wazuh manager's clock back to real time and restarted the manager
   (`date -s … ; hwclock -w ; systemctl restart wazuh-manager`); the DC agent
   reconnected automatically.
-- Remaining fix (pending DC access): re-apply the advanced audit policy on the
-  DC and, crucially, **enforce it through a GPO linked to the Domain
-  Controllers OU** instead of local `auditpol`, so it survives reboots and
-  policy refreshes. Sync all guest clocks (host-only network has no NTP, so the
-  DC — the domain time authority — must be set correctly, with Kali synced to
-  it via `net time set -S <dc>` before any Kerberos-based attack).
+- **Fixed 2026-11-02:** the advanced audit policy is now **enforced by the
+  Default Domain Controllers Policy** (GPMC → *Computer Configuration →
+  Policies → Windows Settings → Security Settings → Advanced Audit Policy
+  Configuration → Audit Policies*) instead of local `auditpol`, so it survives
+  reboots and policy refreshes. Subcategories set to **Success and Failure**:
+
+  | Category | Subcategory | Feeds |
+  |---|---|---|
+  | Account Logon | Kerberos Authentication Service | 4768 / 4771 → 100202–100203 |
+  | Account Logon | Kerberos Service Ticket Operations | 4769 → 100210–100212 |
+  | Account Management | Security Group Management | 4728 / 4732 / 4756 → 100220 |
+  | Account Management | User Account Management | 4720 / 4722 / 4738 |
+  | Logon/Logoff | Logon | 4624 / 4625 → 100200–100201 |
+  | Logon/Logoff | Logoff | 4634 |
+  | Logon/Logoff | Account Lockout | 4740 |
+  | DS Access | Directory Service Access | 4662 → 100230 |
+
+  Applied with `gpupdate /force` and verified with
+  `auditpol /get /category:*`. The verification caught one subcategory (User
+  Account Management) that had not saved in the editor; it was re-applied and
+  re-checked. Lesson in miniature: **verify the effective policy, not the
+  editor screen.**
+- Clocks: all guests are kept within the 5-minute Kerberos tolerance (host-only
+  network has no NTP, so the DC — the domain time authority — is set correctly
+  and Kali is synced to it via `net time set -S <dc>` before any Kerberos-based
+  attack).
 
 **Lessons.**
 - **Saved states and security labs don't mix for time-sensitive telemetry.**

@@ -127,9 +127,13 @@ $ sudo /var/ossec/bin/agent_control -l
 **Advanced audit policy** is applied with [`scripts/Enable-AuditPolicies.ps1`](scripts/Enable-AuditPolicies.ps1),
 which turns on Success+Failure auditing for the subcategories that feed the
 Phase 3 detections (logon, Kerberos AS/TGS, account and group management,
-directory service access) and enlarges the Security event log. On a single-DC
-lab these are applied locally with `auditpol`; in a multi-DC domain the same
-subcategories would be pushed through a GPO linked to the Domain Controllers OU.
+directory service access) and enlarges the Security event log. Local
+`auditpol` alone is **not durable** on a domain controller: a Group Policy
+refresh reverts it, which silenced every detection once (see
+[incident reports](docs/incident-reports.md)). The same subcategories are
+therefore **enforced through the Default Domain Controllers Policy** (Advanced
+Audit Policy Configuration), and the script is kept for verification and for
+standalone hosts.
 
 **End-to-end validation (done).** Failed authentications generated against the
 DC produced event **4625** (logon type 3), which the agent forwarded to the
