@@ -1,0 +1,41 @@
+title: Accessibility Feature Backdoor (Sticky Keys / Utilman)
+id: a8792aa2-981b-4487-a9ac-e1651756c7d0
+status: experimental
+description: |
+    A logon-screen accessibility helper (sethc.exe, utilman.exe, osk.exe,
+    Magnify.exe, Narrator.exe, DisplaySwitch.exe) is modified. These binaries run
+    as SYSTEM before any user authenticates, so replacing one with cmd.exe turns
+    its trigger into a pre-authentication SYSTEM shell - a classic persistence +
+    privilege-escalation backdoor. On a domain controller it is a full-domain
+    compromise. They never change outside a Windows servicing event, so any
+    change is high-fidelity. Requires file-integrity monitoring (Sysmon
+    FileCreate / event 11, or Wazuh syscheck).
+    Lab equivalent: Wazuh rule 100240 (FIM on System32 helpers).
+references:
+    - https://attack.mitre.org/techniques/T1546/008/
+author: Daniel Diaz (ddiazcr)
+date: 2026-11-03
+logsource:
+    product: windows
+    category: file_event
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '\System32\sethc.exe'
+            - '\System32\utilman.exe'
+            - '\System32\osk.exe'
+            - '\System32\Magnify.exe'
+            - '\System32\Narrator.exe'
+            - '\System32\DisplaySwitch.exe'
+    condition: selection
+fields:
+    - TargetFilename
+    - Image
+    - User
+falsepositives:
+    - Windows servicing / update of the accessibility binaries
+level: critical
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1546.008

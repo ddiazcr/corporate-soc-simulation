@@ -1,0 +1,38 @@
+title: Domain Account Discovery via a Decoy Object
+id: 8ed10d12-385a-4cd9-bed1-2b2a72bd8ec0
+status: experimental
+description: |
+    A directory-service read (event 4662, access mask 0x10 = Read Property) on a
+    user-class object. In the lab only one disabled decoy account
+    (adm_backup_legacy) carries a Read-Property SACL, so nothing legitimate reads
+    it; a tool that enumerates every user (LDAP dump, BloodHound/SharpHound,
+    netexec) does. Machine accounts (subject ending in $) are excluded.
+    Lab equivalent: Wazuh rule 100230 (validated 2026-11-02).
+    NOTE: this detection depends on an environmental control - a Read-Property
+    SACL on the decoy object only. Without it, 4662 on user objects is far too
+    noisy to alert on directly.
+references:
+    - https://attack.mitre.org/techniques/T1087/002/
+author: Daniel Diaz (ddiazcr)
+date: 2026-11-03
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4662
+        AccessMask: '0x10'
+        Properties|contains: 'bf967aba-0de6-11d0-a285-00aa003049e2'   # user class GUID
+    filter_machine:
+        SubjectUserName|endswith: '$'
+    condition: selection and not filter_machine
+fields:
+    - SubjectUserName
+    - ObjectName
+    - IpAddress
+falsepositives:
+    - A legitimate admin reading the decoy object by mistake
+level: high
+tags:
+    - attack.discovery
+    - attack.t1087.002

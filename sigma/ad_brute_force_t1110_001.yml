@@ -1,0 +1,31 @@
+title: Active Directory Brute Force - Many Failed Logons from One Source
+id: 870b155c-f90e-4800-8284-915f3dd52a21
+status: experimental
+description: |
+    A single source IP produces many failed logons (Windows event 4625) against
+    the domain controller in a short window - the signature of a password-guessing
+    attack against one or a few accounts.
+    Lab equivalent: Wazuh rule 100200 (Corporate SOC Simulation - Nimbrek S.A.).
+references:
+    - https://attack.mitre.org/techniques/T1110/001/
+author: Daniel Diaz (ddiazcr)
+date: 2026-11-03
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4625
+    timeframe: 4m
+    condition: selection | count() by IpAddress >= 8
+fields:
+    - IpAddress
+    - TargetUserName
+    - LogonType
+falsepositives:
+    - Service or application accounts with stale cached credentials
+    - A user who changed their password and left a device signed in with the old one
+level: high
+tags:
+    - attack.credential-access
+    - attack.t1110.001

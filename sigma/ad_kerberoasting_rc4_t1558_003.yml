@@ -1,0 +1,34 @@
+title: Kerberoasting - Service Ticket Requested with Weak RC4 Encryption
+id: 5dffc5a0-a27c-4e05-9b39-0601b358c718
+status: experimental
+description: |
+    A Kerberos service ticket (event 4769) is requested with RC4-HMAC encryption
+    (ticket encryption type 0x17), which modern clients should not request. An
+    attacker requests these tickets to crack service-account passwords offline.
+    Machine accounts (service name ending in $) are excluded.
+    Lab equivalent: Wazuh rule 100210; a burst for 5+ services escalates to 100211.
+references:
+    - https://attack.mitre.org/techniques/T1558/003/
+author: Daniel Diaz (ddiazcr)
+date: 2026-11-03
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4769
+        TicketEncryptionType: '0x17'
+    filter_machine:
+        ServiceName|endswith: '$'
+    condition: selection and not filter_machine
+fields:
+    - ServiceName
+    - TicketEncryptionType
+    - IpAddress
+    - TargetUserName
+falsepositives:
+    - Legacy applications or appliances that still negotiate RC4
+level: high
+tags:
+    - attack.credential-access
+    - attack.t1558.003

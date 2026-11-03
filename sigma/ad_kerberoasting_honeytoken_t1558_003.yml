@@ -1,0 +1,33 @@
+title: Kerberoasting of a Honeytoken Service Account
+id: 13b1866b-b6ee-4852-9af4-a3b0a9d0dabe
+status: experimental
+description: |
+    A Kerberos service ticket is requested for the honeytoken service account
+    svc_sql_backup. This account exists only as a tripwire and is never used by
+    any real service, so a SINGLE RC4 ticket request for it is high-fidelity
+    evidence of Kerberoasting - it must not wait for a multi-service burst.
+    Lab equivalent: Wazuh rule 100212 (validated 2026-11-03).
+    Replace svc_sql_backup with your own honeytoken SPN account.
+references:
+    - https://attack.mitre.org/techniques/T1558/003/
+author: Daniel Diaz (ddiazcr)
+date: 2026-11-03
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4769
+        TicketEncryptionType: '0x17'
+        ServiceName: 'svc_sql_backup'
+    condition: selection
+fields:
+    - ServiceName
+    - IpAddress
+    - TargetUserName
+falsepositives:
+    - None expected - the account is a pure tripwire
+level: critical
+tags:
+    - attack.credential-access
+    - attack.t1558.003
