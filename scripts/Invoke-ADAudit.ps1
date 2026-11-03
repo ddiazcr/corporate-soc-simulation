@@ -72,7 +72,7 @@ Add-Check 'K3' 'krbtgt password changed in the last 180 days' ($krbAge -le 180) 
     "krbtgt age = $krbAge days" 'T1558.001 Golden Ticket'
 
 # --- Privileged accounts ----------------------------------------------------
-$da = Get-ADGroupMember 'Domain Admins' -Recursive
+$da = @(Get-ADGroupMember 'Domain Admins' -Recursive)   # @() so a single member still has a numeric .Count
 Add-Check 'A1' 'Domain Admins has 2 or fewer members' ($da.Count -le 2) `
     ("Members: " + (($da | ForEach-Object SamAccountName) -join ', ')) 'T1098 / blast radius'
 
