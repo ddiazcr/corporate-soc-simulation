@@ -19,6 +19,7 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 A full SOC cycle on an enterprise identity environment — **build → monitor → attack → detect → triage → harden** — with every claim backed by evidence in the repo, not slides.
 
 - **6 Active Directory attack techniques** mapped to MITRE ATT&CK and caught with **custom Wazuh detection rules** — brute force, password spraying, Kerberoasting, domain account discovery, privileged-group change, and an accessibility-feature backdoor. Five are validated end-to-end against live attacks, with the alert captured in `alerts.json`.
+- **Portable detections** — every AD detection is also written as a vendor-neutral [Sigma rule](sigma/), so the same logic compiles to Splunk, Sentinel, Elastic or QRadar, not just Wazuh.
 - **Honeytoken and decoy detections** — an RC4-only service account and a disabled user with a read SACL — that turn an attacker's own enumeration into a high-confidence, low-noise alert.
 - **AI-assisted triage** — Wazuh alerts sent to Claude with schema-validated JSON output and human approval before any action: **10/10** on a labeled benchmark with benign look-alikes, **0 false positives**, and **2/2 prompt-injection attempts caught**, at ~4 s and ~$0.003 per alert.
 - **Measured hardening** — a 14-check audit scored the domain, hardening was applied, and the re-measure went **50% → 93%** (7/14 → 13/14). Re-running the attack proved the point: the account now **locks** and the detection **still fires** — hardened without going blind.
@@ -276,6 +277,8 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 
 Full technique-by-technique breakdown with detection logic and evidence:
 [`docs/mitre_attack_mapping.md`](docs/mitre_attack_mapping.md).
+
+Portable [Sigma](sigma/) versions of each rule are kept in [`sigma/`](sigma/).
 
 ### First live detection — Brute force (T1110.001)
 
