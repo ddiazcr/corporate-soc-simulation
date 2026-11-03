@@ -1,0 +1,82 @@
+== Nimbrek S.A. AD audit [before] 2026-11-03 11:13 ==
+[FAIL] P1  Account lockout threshold set (1-10)
+            LockoutThreshold=0
+[FAIL] P2  Minimum password length >= 12
+            MinPasswordLength=7
+[PASS] P3  Password complexity enabled
+            ComplexityEnabled=True
+[PASS] K1  No Kerberoastable account allows RC4 (honeytoken excepted)
+            RC4 allowed: svc_sql_backup | honeytoken exception: svc_sql_backup
+[PASS] K2  No account without Kerberos pre-authentication
+            AS-REP roastable:
+[PASS] K3  krbtgt password changed in the last 180 days
+            krbtgt age = 24 days
+[PASS] A1  Domain Admins has 2 or fewer members
+            Members: Administrator
+[FAIL] A2  Domain Admins are in Protected Users
+            Not protected: Administrator
+[PASS] A3  Guest account disabled
+            Guest enabled=False
+[FAIL] A4  Users cannot join computers (MachineAccountQuota = 0)
+            ms-DS-MachineAccountQuota=10
+[FAIL] N1  NTLMv1/LM refused (LmCompatibilityLevel = 5)
+            LmCompatibilityLevel=
+[FAIL] N2  LDAP signing required (LDAPServerIntegrity = 2)
+            LDAPServerIntegrity=1
+[PASS] N3  SMB signing required on the DC
+            RequireSecuritySignature=True
+[FAIL] N4  Print Spooler disabled on the DC
+            Spooler: Running / Automatic
+
+Score: 7/14 checks passed (50%)
+Saved: C:\Lab\soc\corporate-soc-simulation-main\scripts\ad_audit_before.json
+== Nimbrek S.A. AD hardening - APPLY ==
+APPLIED [H1] Lockout 5 attempts / 15 min window / 15 min duration; min password length 12
+      (honeytoken svc_sql_backup keeps RC4 on purpose - it is the Kerberoasting tripwire)
+APPLIED [H4] Disable Guest account
+APPLIED [H5] ms-DS-MachineAccountQuota = 0
+APPLIED [H6] LmCompatibilityLevel = 5 (NTLMv2 only, refuse LM & NTLM)
+APPLIED [H7] Require LDAP signing (LDAPServerIntegrity = 2)
+APPLIED [H8] Require SMB signing on the DC
+APPLIED [H9] Stop and disable Print Spooler
+
+== Manual follow-up (not automated on purpose) ==
+Domain Admins: Administrator  -> remove anyone who does not need standing membership.
+Protected Users: add admin accounts only after confirming they log on with Kerberos (it blocks NTLM, RC4 and delegation).
+krbtgt: reset twice, at least 10 h apart (replication + ticket lifetime), in a planned window.
+
+Log: C:\Lab\soc\corporate-soc-simulation-main\scripts\ad_hardening_applied.log
+Reboot DC01 so the LSA, LDAP and SMB settings take full effect.
+
+== Nimbrek S.A. AD audit [after] 2026-11-03 11:13 ==
+[PASS] P1  Account lockout threshold set (1-10)
+            LockoutThreshold=5
+[PASS] P2  Minimum password length >= 12
+            MinPasswordLength=12
+[PASS] P3  Password complexity enabled
+            ComplexityEnabled=True
+[PASS] K1  No Kerberoastable account allows RC4 (honeytoken excepted)
+            RC4 allowed: svc_sql_backup | honeytoken exception: svc_sql_backup
+[PASS] K2  No account without Kerberos pre-authentication
+            AS-REP roastable:
+[PASS] K3  krbtgt password changed in the last 180 days
+            krbtgt age = 24 days
+[PASS] A1  Domain Admins has 2 or fewer members
+            Members: Administrator
+[FAIL] A2  Domain Admins are in Protected Users
+            Not protected: Administrator
+[PASS] A3  Guest account disabled
+            Guest enabled=False
+[PASS] A4  Users cannot join computers (MachineAccountQuota = 0)
+            ms-DS-MachineAccountQuota=0
+[PASS] N1  NTLMv1/LM refused (LmCompatibilityLevel = 5)
+            LmCompatibilityLevel=5
+[PASS] N2  LDAP signing required (LDAPServerIntegrity = 2)
+            LDAPServerIntegrity=2
+[PASS] N3  SMB signing required on the DC
+            RequireSecuritySignature=True
+[PASS] N4  Print Spooler disabled on the DC
+            Spooler: Stopped / Disabled
+
+Score: 13/14 checks passed (93%)
+Saved: C:\Lab\soc\corporate-soc-simulation-main\scripts\ad_audit_after.json

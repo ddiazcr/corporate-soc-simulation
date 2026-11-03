@@ -22,7 +22,7 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 | **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
 | **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force, password spraying, Kerberoasting & privileged-group changes detected live |
 | **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | 🟡 In progress — real mode, 10/10 on a labeled attack/benign benchmark, injections 2/2 ([details](ai_triage/README.md)) |
-| **5 — Hardening** | AD security audit with before/after measurement | 🟡 Scripts ready ([audit](scripts/Invoke-ADAudit.ps1) / [hardening](scripts/Invoke-ADHardening.ps1)), pending the before/after run |
+| **5 — Hardening** | AD security audit with before/after measurement | 🟡 Hardened: audit score **7/14 → 13/14** ([results](#️-phase-5--hardening)); attack re-run pending |
 
 ---
 
@@ -323,14 +323,51 @@ Deliverables:
 
 ---
 
-## 🛡️ Phase 5 — Hardening (in progress)
+## 🛡️ Phase 5 — Hardening
+
+**Result (2026-11-03): 7/14 → 13/14 checks passed (50% → 93%).**
+Raw output: [`docs/evidence/phase5-audit-before-after.txt`](docs/evidence/phase5-audit-before-after.txt).
+
+| Check | Mitigates | Before | After | Change |
+|---|---|---|---|---|
+| P1 Account lockout threshold | T1110 brute force / spraying | ❌ 0 (never) | ✅ 5 attempts / 15 min | H1 |
+| P2 Minimum password length ≥ 12 | T1110 / offline cracking | ❌ 7 | ✅ 12 | H1 |
+| P3 Password complexity | T1110 | ✅ | ✅ | — |
+| K1 No Kerberoastable account allows RC4 | T1558.003 | ✅ (honeytoken excepted) | ✅ | — |
+| K2 No AS-REP roastable account | T1558.004 | ✅ | ✅ | — |
+| K3 krbtgt changed in last 180 days | T1558.001 golden ticket | ✅ 24 days | ✅ | — |
+| A1 Domain Admins ≤ 2 members | T1098 / blast radius | ✅ | ✅ | — |
+| A2 Domain Admins in Protected Users | T1550 / credential theft | ❌ | ❌ | manual, by design |
+| A3 Guest disabled | T1078 | ✅ | ✅ | — |
+| A4 MachineAccountQuota = 0 | T1136 / RBCD abuse | ❌ 10 | ✅ 0 | H5 |
+| N1 NTLMv1 / LM refused | T1557 relay / downgrade | ❌ not set | ✅ 5 | H6 |
+| N2 LDAP signing required | T1557 LDAP relay | ❌ 1 | ✅ 2 | H7 |
+| N3 SMB signing required | T1557 SMB relay | ✅ | ✅ | — |
+| N4 Print Spooler disabled on DC | T1187 coercion (PrinterBug) | ❌ running | ✅ disabled | H9 |
+
+**Why A2 is still failing.** Adding the only Domain Admin to *Protected Users*
+blocks NTLM, RC4 and delegation for that account. Done without first proving
+it can log on with Kerberos alone, it can lock the last administrator out of
+the domain — exactly the failure this lab already lived through (see the
+[DC recovery incident](docs/incident-reports.md)). It stays a planned manual
+change, along with the krbtgt double reset.
+
+**Bug caught during the run.** The first *before* run reported A1 as FAIL with
+a single Domain Admin: a one-member result from `Get-ADGroupMember` is a lone
+object whose `.Count` is not 1. Wrapping it in `@()` fixed it, and the
+baseline was re-taken with the corrected script before applying anything.
+
+**Safety net.** A VirtualBox snapshot (`pre-hardening`) of DC01 was taken
+before `-Apply`.
+
+### How it was run
 
 Measure, harden, measure again, then re-run the Phase 3 attacks to see what
 changed — including what the detections stop seeing.
 
 1. `Invoke-ADAudit.ps1 -Label before` — read-only, 14 checks (lockout, password length, RC4 on SPN accounts, AS-REP roasting, krbtgt age, Domain Admins size, Protected Users, Guest, MachineAccountQuota, NTLMv1, LDAP signing, SMB signing, Print Spooler), each mapped to the technique it mitigates; saves JSON.
 2. `Invoke-ADHardening.ps1` — dry run by default; `-Apply` to change. Domain Admins membership, Protected Users and the krbtgt reset are reported only, never automated.
-3. `Invoke-ADAudit.ps1 -Label after` and repeat the attacks from Kali.
+3. `Invoke-ADAudit.ps1 -Label after`, then repeat the attacks from Kali (pending).
 
 Design exception: the honeytoken `svc_sql_backup` keeps RC4 on purpose — it is the bait that makes Kerberoasting visible.
 
