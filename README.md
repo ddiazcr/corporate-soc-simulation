@@ -22,7 +22,7 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 | **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
 | **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force, password spraying, Kerberoasting & privileged-group changes detected live |
 | **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | 🟡 In progress — real mode, 10/10 on a labeled attack/benign benchmark, injections 2/2 ([details](ai_triage/README.md)) |
-| **5 — Hardening** | AD security audit with before/after measurement | 🟡 Hardened: audit score **7/14 → 13/14** ([results](#️-phase-5--hardening)); attack re-run pending |
+| **5 — Hardening** | AD security audit with before/after measurement | ✅ Hardened: audit score **7/14 → 13/14**; spraying re-run now locks the account ([results](#️-phase-5--hardening)) |
 
 ---
 
@@ -360,6 +360,16 @@ baseline was re-taken with the corrected script before applying anything.
 **Safety net.** A VirtualBox snapshot (`pre-hardening`) of DC01 was taken
 before `-Apply`.
 
+**Attack re-run (the point of the exercise).** The password spray was repeated
+after hardening. Rule **100201** fired again — the detection still works — and
+this time the targeted account (`crojas`) reached `badPwdCount = 5` and
+`LockedOut = True`. Before hardening the lockout threshold was `0`, so the same
+spray ran unchecked. The hardening does not blind the SIEM; it **detects and
+stops** the attack. A side effect worth noting: with SMB signing now enforced,
+some spray attempts fail at negotiation before they count, so it took a couple
+of passes to cross the threshold — hardening quietly raising the cost of the
+attack.
+
 ### How it was run
 
 Measure, harden, measure again, then re-run the Phase 3 attacks to see what
@@ -367,7 +377,7 @@ changed — including what the detections stop seeing.
 
 1. `Invoke-ADAudit.ps1 -Label before` — read-only, 14 checks (lockout, password length, RC4 on SPN accounts, AS-REP roasting, krbtgt age, Domain Admins size, Protected Users, Guest, MachineAccountQuota, NTLMv1, LDAP signing, SMB signing, Print Spooler), each mapped to the technique it mitigates; saves JSON.
 2. `Invoke-ADHardening.ps1` — dry run by default; `-Apply` to change. Domain Admins membership, Protected Users and the krbtgt reset are reported only, never automated.
-3. `Invoke-ADAudit.ps1 -Label after`, then repeat the attacks from Kali (pending).
+3. `Invoke-ADAudit.ps1 -Label after`, then repeat the attacks.
 
 Design exception: the honeytoken `svc_sql_backup` keeps RC4 on purpose — it is the bait that makes Kerberoasting visible.
 

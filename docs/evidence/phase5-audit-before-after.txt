@@ -80,3 +80,10 @@ Reboot DC01 so the LSA, LDAP and SMB settings take full effect.
 
 Score: 13/14 checks passed (93%)
 Saved: C:\Lab\soc\corporate-soc-simulation-main\scripts\ad_audit_after.json
+
+=== Attack re-run after hardening (2026-11-03) ===
+Password spraying repeated from the Wazuh VM against real lab accounts:
+  - Wazuh manager fired rule 100201 (T1110.003, level 13) again -> detection still works.
+  - DC: crojas badPwdCount reached 5, LockedOut = True.
+Before hardening LockoutThreshold was 0 (accounts never locked); after H1 the
+account locks at 5 failed attempts. Same attack, now detected AND stopped.
