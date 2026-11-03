@@ -255,8 +255,8 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 |---|---|---|---|
 | Brute force | T1110.001 | 4625 | ✅ detected live |
 | Password spraying | T1110.003 | 4625 / 4771 | ✅ detected live |
-| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ✅ detected live · single honeytoken request now level 12 (100212, pending validation) |
-| Domain account discovery | T1087.002 | 4662 (decoy object with a read SACL) | 🟡 rule written (100230), pending live validation |
+| Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ✅ validated (100210 burst logic, 100212 honeytoken single request, level 12) · also seen on the wire by Suricata (86601) |
+| Domain account discovery | T1087.002 | 4662 (decoy object with a read SACL) | ✅ validated live from Kali (100230, level 12) |
 | Privileged group changes | T1098 | 4728 / 4732 / 4756 | ✅ detected live |
 | Accessibility-feature backdoor (sethc / utilman) | T1546.008 | FIM 550/554 on System32 helpers | 🟡 rule written (100240), pending FIM config & validation — arose from the DC [recovery incident](docs/incident-reports.md) |
 
@@ -282,7 +282,7 @@ Deliverables:
 - [x] Honeytoken service account (`svc_sql_backup`, RC4-only SPN `MSSQLSvc/db01.lab.local:1433`) used to trigger the Kerberoasting detection
 - [x] Incident report per attack (timeline, IOCs, response, hardening) — [`docs/incident-reports.md`](docs/incident-reports.md)
 - [x] Discovery decoy: disabled account `adm_backup_legacy` with a Read-Property SACL ([`scripts/Setup-DiscoveryDecoy.ps1`](scripts/Setup-DiscoveryDecoy.ps1)) + rule 100230
-- [ ] End-to-end validation of 100230 (LDAP enumeration from Kali) and 100212
+- [x] End-to-end validation of 100230 (LDAP enumeration from Kali) and 100212 (honeytoken ticket request)
 
 ---
 

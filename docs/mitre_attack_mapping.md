@@ -13,8 +13,8 @@ validated end-to-end.
 |---|---|---|---|---|---|
 | Credential Access | Brute Force: Password Guessing | T1110.001 | 4625 | 60122 → 100200 (level 12) | ✅ validated (100200) |
 | Credential Access | Brute Force: Password Spraying | T1110.003 | 4625 / 4771 | 100201 (NTLM) / 100202 → 100203 (Kerberos), level 13 | ✅ validated (100201, NTLM) |
-| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12); 100212 honeytoken (level 12) | ✅ validated (100210) · ⏳ 100212 |
-| Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | 60103 → 100230 (level 12), decoy object | ⏳ pending |
+| Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12); 100212 honeytoken (level 12) | ✅ validated (100210, 100212) |
+| Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | 60103 → 100230 (level 12), decoy object | ✅ validated (100230) |
 | Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ✅ validated (100220) |
 | Persistence / Priv. Esc. | Event Triggered Execution: Accessibility Features | T1546.008 | FIM 550/554 (file change) / 4657 (IFEO) | 100240 (level 13), FIM on System32 helpers | ⏳ pending (FIM config) |
 
@@ -131,8 +131,33 @@ dedicated built-in rule), pins event `4662`, access mask `0x10` (Read
 Property) and the user object class GUID `bf967aba-…`, and ignores machine
 accounts (`$`). Level 12, so it also reaches the AI triage threshold.
 
-Status: written, pending `wazuh-logtest` confirmation of the parent rule and a
-live enumeration from Kali.
+**Validated 2026-11-02:** a full LDAP user enumeration from **Kali
+(`192.168.56.103`)** read the decoy object. The DC logged event **4662** on
+`adm_backup_legacy` and the manager fired **rule 100230 (T1087.002, level
+12)**: *"decoy account read in AD by crojas - possible domain account
+discovery"*. The detection only became possible after the Directory Service
+Access subcategory was enforced by GPO (see the silent-detections incident).
+
+### T1558.003 — Honeytoken Kerberoasting (rule 100212) — ✅ validated
+
+**Validated 2026-11-03:** a service-ticket request for the honeytoken SPN
+(`MSSQLSvc/db01.lab.local:1433`, account `svc_sql_backup`, RC4-only) produced
+event **4769** with `ticketEncryptionType 0x17`, and the manager fired **rule
+100212 (T1558.003, level 12)** on that single request. An alert reports only
+the deepest matching rule, so the event shows as 100212, not 100210, once the
+honeytoken child rule matches.
+
+**Defense in depth.** The two earlier requests made from Kali were also
+caught on the network side: Suricata raised alerts mentioning `svc_sql_backup`
+(Wazuh rule 86601) at the exact times of both requests.
+
+**Open item.** Those Kali-sourced 4769 events were logged by the DC (with
+`0x17` and the Kali client address) but no Windows alert reached
+`alerts.json`, while the DC-local request alerted correctly. Event archiving
+(`logall_json`, via [`scripts/archives.sh`](../scripts/archives.sh)) was not
+on at the time, so whether they reached the manager is unproven; the next
+network-sourced test runs with archiving enabled. The diagnostic used to
+isolate this is [`scripts/diagnose_kerberoast.sh`](../scripts/diagnose_kerberoast.sh).
 
 ### T1546.008 — Accessibility Features backdoor (rule 100240) — ⏳ pending (FIM config)
 
