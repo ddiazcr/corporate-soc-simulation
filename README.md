@@ -1,6 +1,6 @@
 # 🛡️ Corporate SOC Simulation — Nimbrek S.A.
 
-![Status](https://img.shields.io/badge/status-Phase%203%20in%20progress-blue)
+![Status](https://img.shields.io/badge/status-SOC%20cycle%20complete-brightgreen)
 ![Windows Server](https://img.shields.io/badge/Windows%20Server-2022-0078D6?logo=windows&logoColor=white)
 ![Active Directory](https://img.shields.io/badge/Active%20Directory-lab.local-0078D6)
 ![Wazuh](https://img.shields.io/badge/SIEM-Wazuh%204.9.2-3BB1C2)
@@ -14,14 +14,28 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 
 ---
 
+## 🎯 What this project demonstrates
+
+A full SOC cycle on an enterprise identity environment — **build → monitor → attack → detect → triage → harden** — with every claim backed by evidence in the repo, not slides.
+
+- **6 Active Directory attack techniques** mapped to MITRE ATT&CK and caught with **custom Wazuh detection rules** — brute force, password spraying, Kerberoasting, domain account discovery, privileged-group change, and an accessibility-feature backdoor. Five are validated end-to-end against live attacks, with the alert captured in `alerts.json`.
+- **Honeytoken and decoy detections** — an RC4-only service account and a disabled user with a read SACL — that turn an attacker's own enumeration into a high-confidence, low-noise alert.
+- **AI-assisted triage** — Wazuh alerts sent to Claude with schema-validated JSON output and human approval before any action: **10/10** on a labeled benchmark with benign look-alikes, **0 false positives**, and **2/2 prompt-injection attempts caught**, at ~4 s and ~$0.003 per alert.
+- **Measured hardening** — a 14-check audit scored the domain, hardening was applied, and the re-measure went **43% → 93%**. Re-running the attack proved the point: the account now **locks** and the detection **still fires** — hardened without going blind.
+- **Incident-driven** — real failures (a full-disk SIEM, a clock-skew blackout, a domain controller locked out and recovered via WinRE) are written up as blameless postmortems, each turned into a detection or a hardening item.
+
+Jump to: [MITRE mapping](docs/mitre_attack_mapping.md) · [AI triage](ai_triage/README.md) · [incident reports](docs/incident-reports.md) · [hardening results](#️-phase-5--hardening)
+
+---
+
 ## 📍 Project status
 
 | Phase | Scope | Status |
 |---|---|---|
 | **1 — Infrastructure** | Domain controller, `lab.local` forest, Nimbrek S.A. structure | ✅ Complete |
 | **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
-| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | 🟡 In progress — brute force, password spraying, Kerberoasting & privileged-group changes detected live |
-| **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | 🟡 In progress — real mode, 10/10 on a labeled attack/benign benchmark, injections 2/2 ([details](ai_triage/README.md)) |
+| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | ✅ 5 of 6 techniques validated live (brute force, spraying, Kerberoasting, account discovery, privileged-group change); accessibility-backdoor FIM rule written, validation pending |
+| **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | ✅ Real mode — 10/10 on a labeled attack/benign benchmark, 0 false positives, injections 2/2 ([details](ai_triage/README.md)) |
 | **5 — Hardening** | AD security audit with before/after measurement | ✅ Hardened: audit score **7/14 → 13/14**; spraying re-run now locks the account ([results](#️-phase-5--hardening)) |
 
 ---
@@ -249,7 +263,7 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 
 ---
 
-## 🚀 Phase 3 — Attack & detection (in progress)
+## 🚀 Phase 3 — Attack & detection
 
 | Technique | MITRE ATT&CK | Key Windows event | Status |
 |---|---|---|---|
