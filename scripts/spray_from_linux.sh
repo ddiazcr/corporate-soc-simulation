@@ -6,7 +6,8 @@
 set -e
 DC=192.168.56.10
 WRONG='WrongPass#2026'
-USERS=(ggomez mrojas lsolis acruz dvargas pmendez)
+USERS=(crojas mjimenez lvargas amora scastro dherrera)
+LOCKTARGET=crojas   # real account hammered to demonstrate the post-hardening lockout
 
 if ! command -v smbclient >/dev/null; then
   echo "Installing smbclient..."
@@ -19,8 +20,10 @@ for u in "${USERS[@]}"; do
   echo "  tried $u"
   sleep 1
 done
-echo "== Brute force burst: 8 tries against one account =="
+echo "== Lockout check: 8 wrong tries against one real account ($LOCKTARGET) =="
+echo "   (post-hardening this should lock it after 5 - confirm on the DC with"
+echo "    Search-ADAccount -LockedOut)"
 for i in $(seq 1 8); do
-  smbclient "//$DC/IPC\$" -U "lab\\ggomez%$WRONG$i" -c quit >/dev/null 2>&1
+  smbclient "//$DC/IPC\$" -U "lab\\$LOCKTARGET%$WRONG$i" -c quit >/dev/null 2>&1
 done
 echo "Done. Check detections with: bash verify_detections.sh"
