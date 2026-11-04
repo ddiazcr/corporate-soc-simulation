@@ -284,6 +284,16 @@ returned).
   | Logon/Logoff | Logoff | 4634 |
   | Logon/Logoff | Account Lockout | 4740 |
   | DS Access | Directory Service Access | 4662 → 100230 |
+  | Object Access | File System *(Success, added 2026-11-04)* | 4656 / 4663 → Wazuh FIM whodata |
+  | Object Access | Handle Manipulation *(Success, added 2026-11-04)* | 4658 / 4690 → Wazuh FIM whodata |
+
+  The two Object Access subcategories were added later, when FIM whodata on
+  the accessibility helpers (rule 100240) produced nothing: whodata is built on
+  Windows file-system auditing, and a GPO-defined advanced audit policy leaves
+  every subcategory it does not define at *No Auditing*. A local `auditpol
+  /set` turned them on, and the next `gpupdate` turned them off again — the
+  same failure as this incident, on a smaller scale. Now both are defined in
+  the GPO as well.
 
   Applied with `gpupdate /force` and verified with
   `auditpol /get /category:*`. The verification caught one subcategory (User
