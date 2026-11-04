@@ -18,7 +18,7 @@ This is the second project in my Blue Team portfolio. It extends my [Home SOC La
 
 A full SOC cycle on an enterprise identity environment — **build → monitor → attack → detect → triage → harden** — with every claim backed by evidence in the repo, not slides.
 
-- **6 Active Directory attack techniques** mapped to MITRE ATT&CK and caught with **custom Wazuh detection rules** — brute force, password spraying, Kerberoasting, domain account discovery, privileged-group change, and an accessibility-feature backdoor. Five are validated end-to-end against live attacks, with the alert captured in `alerts.json`.
+- **6 Active Directory attack techniques** mapped to MITRE ATT&CK and caught with **custom Wazuh detection rules** — brute force, password spraying, Kerberoasting, domain account discovery, privileged-group change, and an accessibility-feature backdoor. All six are validated end-to-end, with the alert captured in `alerts.json`.
 - **Portable detections** — every AD detection is also written as a vendor-neutral [Sigma rule](sigma/), so the same logic compiles to Splunk, Sentinel, Elastic or QRadar, not just Wazuh.
 - **Honeytoken and decoy detections** — an RC4-only service account and a disabled user with a read SACL — that turn an attacker's own enumeration into a high-confidence, low-noise alert.
 - **AI-assisted triage** — Wazuh alerts sent to Claude with schema-validated JSON output and human approval before any action: **10/10** on a labeled benchmark with benign look-alikes, **0 false positives**, and **2/2 prompt-injection attempts caught**, at ~4 s and ~$0.003 per alert.
@@ -35,7 +35,7 @@ Jump to: [MITRE mapping](docs/mitre_attack_mapping.md) · [AI triage](ai_triage/
 |---|---|---|
 | **1 — Infrastructure** | Domain controller, `lab.local` forest, Nimbrek S.A. structure | ✅ Complete |
 | **2 — Visibility** | Wazuh agent on the DC, advanced audit policies, 4625 events reaching the SIEM | ✅ Complete |
-| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | ✅ 5 of 6 techniques validated live (brute force, spraying, Kerberoasting, account discovery, privileged-group change); accessibility-backdoor FIM rule written, validation pending |
+| **3 — Attack & detection** | Attacks mapped to MITRE ATT&CK, custom detections, honeytoken | ✅ 6 of 6 techniques validated end-to-end (brute force, spraying, Kerberoasting, account discovery, privileged-group change, accessibility backdoor) |
 | **4 — AI-assisted triage** | Wazuh alerts → Claude with schema-validated JSON output, human approval before any action, prompt-injection defenses, measured accuracy and cost | ✅ Real mode — 10/10 on a labeled attack/benign benchmark, 0 false positives, injections 2/2 ([details](ai_triage/README.md)) |
 | **5 — Hardening** | AD security audit with before/after measurement | ✅ Hardened: audit score **7/14 → 13/14**; spraying re-run now locks the account ([results](#️-phase-5--hardening)) |
 
@@ -273,7 +273,7 @@ clean fixed it immediately — the agent registered as `Active` within seconds.
 | Kerberoasting | T1558.003 | 4769 (RC4 encryption `0x17`) | ✅ validated (100210 burst logic, 100212 honeytoken single request, level 12) · also seen on the wire by Suricata (86601) |
 | Domain account discovery | T1087.002 | 4662 (decoy object with a read SACL) | ✅ validated live from Kali (100230, level 12) |
 | Privileged group changes | T1098 | 4728 / 4732 / 4756 | ✅ detected live |
-| Accessibility-feature backdoor (sethc / utilman) | T1546.008 | FIM 550/554 on System32 helpers | 🟡 rule written (100240), pending FIM config & validation — arose from the DC [recovery incident](docs/incident-reports.md) |
+| Accessibility-feature backdoor (sethc / utilman) | T1546.008 | FIM 550/554 on System32 helpers | ✅ validated (100240, level 13) — arose from the DC [recovery incident](docs/incident-reports.md); three FIM config pitfalls documented in the [mapping](docs/mitre_attack_mapping.md) |
 
 Full technique-by-technique breakdown with detection logic and evidence:
 [`docs/mitre_attack_mapping.md`](docs/mitre_attack_mapping.md).

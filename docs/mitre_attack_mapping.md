@@ -16,7 +16,7 @@ validated end-to-end.
 | Credential Access | Steal or Forge Kerberos Tickets: Kerberoasting | T1558.003 | 4769 (RC4 `0x17`) | 100210 (level 8) → 100211 (level 12); 100212 honeytoken (level 12) | ✅ validated (100210, 100212) |
 | Discovery | Account Discovery: Domain Account | T1087.002 | 4662 | 60103 → 100230 (level 12), decoy object | ✅ validated (100230) |
 | Persistence / Priv. Esc. | Account Manipulation | T1098 | 4728 / 4732 / 4756 | 100220 (level 13) | ✅ validated (100220) |
-| Persistence / Priv. Esc. | Event Triggered Execution: Accessibility Features | T1546.008 | FIM 550/554 (file change) / 4657 (IFEO) | 100240 (level 13), FIM on System32 helpers | ⏳ pending (FIM config) |
+| Persistence / Priv. Esc. | Event Triggered Execution: Accessibility Features | T1546.008 | FIM 550/554 (file change) / 4657 (IFEO) | 100240 (level 13), FIM on System32 helpers | ✅ validated (100240) |
 
 ## Detection logic
 
@@ -159,7 +159,7 @@ on at the time, so whether they reached the manager is unproven; the next
 network-sourced test runs with archiving enabled. The diagnostic used to
 isolate this is [`scripts/diagnose_kerberoast.sh`](../scripts/diagnose_kerberoast.sh).
 
-### T1546.008 — Accessibility Features backdoor (rule 100240) — ⏳ pending (FIM config)
+### T1546.008 — Accessibility Features backdoor (rule 100240) — ✅ validated
 
 The Windows logon screen runs several accessibility helpers **as SYSTEM, before
 any user authenticates**: `sethc.exe` (Sticky Keys, five Shift presses),
@@ -175,16 +175,44 @@ Administrator password was lost (see [incident reports](incident-reports.md)).
 so file integrity monitoring on them is high-signal and low-noise. Rule
 **100240** (level 13) fires on Wazuh FIM events **550** (checksum changed) and
 **554** (file added) whose `file` path matches one of the helpers under
-`System32`. It requires the DC agent's `ossec.conf` to watch those files under
-`<syscheck>` (the exact `<directories>` lines are in the rule's comment in
-`local_rules.xml`); that FIM config is the one piece still pending before the
-rule can be validated end-to-end.
+`System32`. The FIM configuration that feeds it is added by
+[`scripts/Enable-AccessibilityFIM.ps1`](../scripts/Enable-AccessibilityFIM.ps1).
 
-**Validation plan.** With FIM configured, modify a copy of a helper
-(`copy /y cmd.exe C:\Windows\System32\osk.exe`, then restore from `.bak`) and
-confirm rule 100240 in `alerts.json`. In fact, restoring the two helpers that
-were swapped during the recovery is itself the first real `550` event this rule
-should catch.
+**Validated 2026-11-04.** The owner of `osk.exe` was changed on DC01
+(`takeown`), and an on-demand FIM scan
+(`agent_control -r -u 004`) reported the modification. The manager fired
+**rule 100240 (T1546.008, level 13)** on
+`c:\windows\system32\osk.exe` with `changed: ["uid","user_name"]`.
+The test changed ownership only; no binary was replaced.
+
+**Three configuration pitfalls found on the way** — each one silently
+produced *no alert* with a rule that was correct all along:
+
+1. **32-bit agent redirection.** The Windows agent is 32-bit, so a plain
+   `C:\Windows\System32` path is redirected to `SysWOW64`. The helpers must be
+   watched through `%WINDIR%\SysNative` (the convention Wazuh's own default
+   config uses).
+2. **Duplicate directory entries.** Wazuh's default agent config already has a
+   `%WINDIR%\SysNative` entry with its own `restrict` list (which includes
+   `sethc.exe` but not `osk.exe`). A second entry for the same directory does
+   not merge with it, so the custom list was effectively ignored. The fix is
+   one `<directories>` entry **per file**
+   (`%WINDIR%\SysNative\osk.exe`, …), which never collides with the default.
+3. **Owner / permission changes and real-time monitoring.** In this lab,
+   neither `realtime` nor `whodata` reported a change of *owner* on these
+   files; the change was only reported by a **scan**. Force-killing the agent
+   to trigger a scan was also misleading: the agent rebuilt its local
+   baseline, treated the scan as a first scan, and synced the new state to the
+   manager **without alerting**. An on-demand scan from the manager
+   (`agent_control -r -u <id>`) keeps the baseline and produces the alert.
+   In production, keep the default scheduled scan (here every 12 h) and treat
+   real-time as a bonus, not a guarantee, for metadata-only changes.
+
+The lesson matches the rest of the project: when a detection is silent, walk
+the pipeline backwards — is the file monitored at all (`scripts/fim_db.sh`
+reads the manager's per-agent FIM database), did the change reach the manager,
+and only then is the rule. [`scripts/diagnose_fim.sh`](../scripts/diagnose_fim.sh)
+automates that walk.
 
 **Registry variant.** Instead of replacing the file, an attacker can set a
 `Debugger` value under `…\Image File Execution Options\sethc.exe`. That is not a
