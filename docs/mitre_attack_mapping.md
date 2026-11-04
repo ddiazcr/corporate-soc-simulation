@@ -184,6 +184,12 @@ so file integrity monitoring on them is high-signal and low-noise. Rule
 **rule 100240 (T1546.008, level 13)** on
 `c:\windows\system32\osk.exe` with `changed: ["uid","user_name"]`.
 The test changed ownership only; no binary was replaced.
+*Known residual:* after the test, the file's DACL is back to factory, but the
+owner is still `LAB\Administrator` instead of `NT SERVICE\TrustedInstaller`.
+Re-assigning ownership to another principal needs `SeRestorePrivilege`, which
+`icacls /setowner` does not enable (it failed even when run as SYSTEM from a
+scheduled task). Practical risk is nil — any administrator can take ownership
+at will — and it is tracked as a cleanup item.
 
 **Three configuration pitfalls found on the way** — each one silently
 produced *no alert* with a rule that was correct all along:
