@@ -197,13 +197,14 @@
     never change outside a Windows servicing event, so a FIM change is
     high-fidelity.
 
-    Requires Wazuh FIM. Add to the DC agent's ossec.conf, inside <syscheck>:
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\sethc.exe</directories>
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\utilman.exe</directories>
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\osk.exe</directories>
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\Magnify.exe</directories>
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\Narrator.exe</directories>
-      <directories check_all="yes" realtime="yes">C:\Windows\System32\DisplaySwitch.exe</directories>
+    Requires Wazuh FIM. Add ONE line to the DC agent's ossec.conf, inside <syscheck>:
+      <directories check_all="yes" realtime="yes" recursion_level="0"
+        restrict="sethc.exe$|utilman.exe$|osk.exe$|Magnify.exe$|Narrator.exe$|DisplaySwitch.exe$">%WINDIR%\SysNative</directories>
+    The Windows agent is 32-bit: a plain C:\Windows\System32 path is redirected
+    to SysWOW64 (the 32-bit copies). %WINDIR%\SysNative is the real 64-bit
+    System32 - the same convention Wazuh's default agent config uses - which is
+    why the regex accepts both System32 and SysNative.
+    scripts/Enable-AccessibilityFIM.ps1 adds this line and restarts the agent.
     Parents 550 (checksum changed) and 554 (file added) are Wazuh's built-in FIM rules.
 
     Registry variant (not file-based): an attacker can instead set a Debugger
@@ -214,7 +215,7 @@
   -->
   <rule id="100240" level="13">
     <if_sid>550,554</if_sid>
-    <field name="file" type="pcre2">(?i)\\System32\\(sethc|utilman|osk|Magnify|Narrator|DisplaySwitch)\.exe$</field>
+    <field name="file" type="pcre2">(?i)\\(System32|SysNative)\\(sethc|utilman|osk|Magnify|Narrator|DisplaySwitch)\.exe$</field>
     <description>Nimbrek: accessibility binary modified in System32 ($(file)) - possible T1546.008 sticky-keys/utilman backdoor</description>
     <mitre>
       <id>T1546.008</id>
