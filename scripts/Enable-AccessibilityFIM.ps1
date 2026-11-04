@@ -21,13 +21,13 @@ $conf = 'C:\Program Files (x86)\ossec-agent\ossec.conf'
 Copy-Item $conf "$conf.bak-fim" -Force
 $line = '    <directories check_all="yes" realtime="yes" recursion_level="0" restrict="sethc.exe$|utilman.exe$|osk.exe$|Magnify.exe$|Narrator.exe$|DisplaySwitch.exe$">%WINDIR%\SysNative</directories>'
 $xml  = [IO.File]::ReadAllText($conf)
-if ($xml -notmatch 'sethc\.exe\$') {
+if ($xml -notmatch 'DisplaySwitch\.exe') {   # own marker: Wazuh's default config already lists sethc.exe
     $xml = ([regex]'<syscheck>').Replace($xml, "<syscheck>`r`n$line", 1)
     [IO.File]::WriteAllText($conf, $xml)
     Write-Host 'FIM line added to ossec.conf'
 } else {
     Write-Host 'FIM line already present, nothing to add'
 }
-Restart-Service WazuhSvc
+Stop-Service WazuhSvc -Force; Start-Sleep 5; Start-Service WazuhSvc
 Get-Service WazuhSvc | Select-Object Name, Status
 Select-String -Path $conf -Pattern 'SysNative' | Select-Object -Last 1
