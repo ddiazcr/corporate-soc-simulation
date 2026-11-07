@@ -21,6 +21,10 @@ Flags
 
 The SSH user needs read access to /var/ossec/logs/alerts/alerts.json
 (one-time, on the manager:  sudo usermod -aG wazuh <usuario>  then log in again).
+
+Live mode requires key-based SSH authentication (BatchMode): an automated
+reader must not depend on an interactive password prompt. Verify with:
+    ssh -o BatchMode=yes usuario@192.168.56.102 "echo ok"
 """
 
 import sys
@@ -86,14 +90,31 @@ def califica(alerta, todas):
 
 
 def lineas_ssh(destino):
-    cmd = ["ssh", destino, f"tail -n 0 -F {ALERTS_PATH}"]
+    # -T: no remote TTY. BatchMode: key-based auth only, so a missing key fails
+    #     fast instead of silently waiting on a password prompt.
+    # ServerAlive*: detect a dead manager instead of hanging forever.
+    # stdbuf -oL: force the remote tail to flush line by line when its stdout is
+    #     not a terminal (otherwise alerts can sit in a block buffer).
+    cmd = [
+        "ssh", "-T",
+        "-o", "BatchMode=yes",
+        "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
+        destino, f"stdbuf -oL tail -n 0 -F {ALERTS_PATH}",
+    ]
     print(f"Escuchando alertas en vivo: {' '.join(cmd)}  (Ctrl+C para salir)\n")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
+    # Binary, unbuffered pipe read line by line: avoids read-ahead buffering of
+    # text-mode pipes on Windows, so each alert is processed as soon as it lands.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0)
     try:
-        for linea in proc.stdout:
-            yield linea
+        for raw in iter(proc.stdout.readline, b""):
+            yield raw.decode("utf-8", errors="replace")
     finally:
         proc.terminate()
+        code = proc.wait()
+        if code not in (0, None) and code != -15:
+            print(f"\n[ERROR] Se perdió la conexión SSH con Wazuh (código {code}). "
+                  "Revisar que la VM esté arriba y que la autenticación por llave funcione:\n"
+                  f"  ssh -o BatchMode=yes {destino} \"echo ok\"")
 
 
 def lineas_archivo(ruta):
@@ -136,6 +157,9 @@ def main():
             except (json.JSONDecodeError, ValueError, TypeError):
                 continue
             if not califica(alerta, todas) or alerta["_wazuh_id"] in vistos:
+                if not salida and alerta["rule_id"].startswith("1002"):
+                    # Visible trace so a live run is never silent about what it saw
+                    print(f"  · recibida regla {alerta['rule_id']} nivel {alerta['level']} (no se triagea)")
                 continue
             vistos.add(alerta["_wazuh_id"])
             if salida:
