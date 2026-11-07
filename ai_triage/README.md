@@ -138,10 +138,58 @@ as they fire. The approval gate still applies to every case.
 # one-time on the manager: let the SSH user read alerts.json
 sudo usermod -aG wazuh <user>
 
+# one-time on the analyst workstation: key-based auth (live mode is key-only)
+ssh-keygen -t ed25519            # then append the .pub to ~/.ssh/authorized_keys on the manager
+ssh -o BatchMode=yes <user>@192.168.56.102 "echo ok"
+
 # on the analyst workstation
 AI_MODE=REAL python3 wazuh_feed.py --ssh <user>@192.168.56.102
 # or replay a copy:   python3 wazuh_feed.py --file alerts.json
 ```
+
+### How the live stream ends
+
+| Ending | Behaviour | Exit status |
+|---|---|---|
+| Analyst presses Ctrl+C | ssh is stopped and reaped; prints `Detenido por el analista.` | `0` |
+| Stream closes unexpectedly (manager down, network cut, remote `tail` killed) | ssh's own status is collected with a bounded wait (5 s), then `[ERROR] El stream de alertas se cerró inesperadamente` on stderr | `2` — **even if ssh exited with 0** |
+| Key rejected / missing | ssh fails immediately (`BatchMode=yes`), no password prompt | `2` |
+
+ssh runs in its own process group, so the console's Ctrl+C reaches only Python
+and a voluntary stop is never mistaken for a lost connection. The pipe is read
+in a separate thread so Ctrl+C is honoured even while no alerts are arriving.
+
+### Live feed checks
+
+Automated (`python -m unittest discover -s tests -v`, POSIX, stand-in `ssh`
+on `PATH`) — **8/8 passing, 5 consecutive runs**:
+
+| Check | Test |
+|---|---|
+| An alert is delivered without waiting for the next one (< 2 s) | `test_alert_is_delivered_without_waiting_for_the_next_one` |
+| Remote EOF with exit code **0** is a failure | `test_remote_eof_with_exit_code_0_is_a_failure` |
+| Remote EOF with exit code 255 is a failure | `test_remote_eof_with_exit_code_255_is_a_failure` |
+| `--ssh` exits non-zero when the stream closes with code 0 | `test_ssh_mode_exits_nonzero_when_stream_closes_with_code_0` |
+| EOF while ssh keeps running → bounded wait, ssh reaped | `test_eof_while_ssh_keeps_running_uses_a_bounded_wait` |
+| Voluntary close stops ssh and reports nothing | `test_voluntary_close_stops_ssh_and_reports_nothing` |
+| Ctrl+C (SIGINT to the foreground group) releases ssh, exit 0, no `[ERROR]` | `test_ctrl_c_releases_ssh_without_reporting_a_lost_connection` |
+| Command is key-only and line-buffered | `test_command_is_key_only_and_line_buffered` |
+
+**How remote EOF with exit code 0 was verified:** the stand-in `ssh` prints one
+alert line and exits with status 0. The generator yields the alert, then
+raises `StreamCerrado` with `codigo == 0`; run through `main()` as a separate
+process, `--ssh` mode exits with status 2 and prints the error on stderr.
+There is no natural way to make the real remote `tail -F` exit 0, so this case
+is covered by the stand-in only.
+
+Manual, on the Windows analyst host — **PENDING (not yet executed)**:
+
+| # | Check | Procedure | Expected |
+|---|---|---|---|
+| W1 | Alert arrives without waiting for the next | Start the feed; on DC01 `klist purge` then `klist get MSSQLSvc/db01.lab.local:1433`; trigger nothing else | `>>> Wazuh ... regla 100212` within ~1 min (Wazuh ingestion delay ≈ 45 s), with no second alert needed |
+| W2 | Rejected key fails without a password prompt | `python wazuh_feed.py --ssh nokey@192.168.56.102` (user without the key) | Immediate `Permission denied (publickey...)` from ssh + `[ERROR]`, exit 2; **no** `password:` prompt |
+| W3 | Interrupting an active session is a visible failure | Feed running; on the manager `pkill -f "tail -n 0 -F /var/ossec/logs/alerts/alerts.json"` | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2 |
+| W4 | Ctrl+C releases the process without reporting a lost connection | Feed running, no alerts; press Ctrl+C once | `Detenido por el analista.` within ~1 s, no `[ERROR]`, `$LASTEXITCODE` = 0, no `ssh.exe` left (`Get-Process ssh -ErrorAction SilentlyContinue` empty) |
 
 ## Prompt-injection test
 

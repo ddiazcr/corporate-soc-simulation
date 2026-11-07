@@ -27,14 +27,34 @@ reader must not depend on an interactive password prompt. Verify with:
     ssh -o BatchMode=yes usuario@192.168.56.102 "echo ok"
 """
 
+import os
 import sys
 import json
+import queue
+import threading
 import subprocess
 
 import soc_ai_triage as triage
 
 ALERTS_PATH = "/var/ossec/logs/alerts/alerts.json"
 MAX_RAW = 1500  # cap the raw event text sent to the model
+EOF_WAIT_S = 5.0    # bounded wait for ssh's exit status after the stream ends
+STOP_WAIT_S = 5.0   # bounded wait after terminate() before kill()
+EXIT_STREAM_LOST = 2
+
+
+class StreamCerrado(RuntimeError):
+    """The live alert stream ended without the analyst asking for it.
+
+    Raised even when ssh exits with status 0: in live mode the remote
+    `tail -F` never ends on its own, so any end of stream is a failure.
+    """
+
+    def __init__(self, codigo):
+        self.codigo = codigo
+        super().__init__(
+            f"El stream de alertas se cerró inesperadamente "
+            f"(código de salida de ssh: {codigo}). No se están recibiendo alertas.")
 
 
 def _get(d, *path, default=None):
@@ -89,32 +109,86 @@ def califica(alerta, todas):
     return todas or alerta["rule_id"].startswith("1002")
 
 
-def lineas_ssh(destino):
-    # -T: no remote TTY. BatchMode: key-based auth only, so a missing key fails
+def comando_ssh(destino):
+    # -T: no remote TTY. BatchMode: key-based auth only, so a rejected key fails
     #     fast instead of silently waiting on a password prompt.
     # ServerAlive*: detect a dead manager instead of hanging forever.
     # stdbuf -oL: force the remote tail to flush line by line when its stdout is
     #     not a terminal (otherwise alerts can sit in a block buffer).
-    cmd = [
+    return [
         "ssh", "-T",
         "-o", "BatchMode=yes",
         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
         destino, f"stdbuf -oL tail -n 0 -F {ALERTS_PATH}",
     ]
+
+
+def _detener(proc):
+    """Stop ssh and reap it: terminate, bounded wait, then kill."""
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=STOP_WAIT_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    return proc.wait()
+
+
+def lineas_ssh(destino, eof_wait=EOF_WAIT_S):
+    """Yield alert lines from the manager as they are written.
+
+    Two different endings:
+      * voluntary (Ctrl+C, or the consumer closes the generator): ssh is
+        stopped and reaped, nothing is reported;
+      * unexpected end of stream (EOF): ssh's exit status is collected with a
+        bounded wait and StreamCerrado is raised, whatever that status is.
+
+    ssh runs in its own process group so the console's Ctrl+C reaches only
+    Python; otherwise ssh would die on its own and a voluntary stop would look
+    like a lost connection. The pipe is read in a thread so Ctrl+C is handled
+    within a fraction of a second even when no alerts are arriving (a blocking
+    pipe read on Windows is not interrupted by Ctrl+C). ssh's stderr is
+    inherited, so its own diagnostics stay on stderr.
+    """
+    cmd = comando_ssh(destino)
     print(f"Escuchando alertas en vivo: {' '.join(cmd)}  (Ctrl+C para salir)\n")
-    # Binary, unbuffered pipe read line by line: avoids read-ahead buffering of
-    # text-mode pipes on Windows, so each alert is processed as soon as it lands.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0)
+    grupo = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+             else {"start_new_session": True})
+    # Binary, unbuffered pipe read line by line: no text-mode read-ahead, so each
+    # alert is handed over as soon as its line arrives.
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0, **grupo)
+    cola = queue.Queue()
+
+    def lector():
+        try:
+            for raw in iter(proc.stdout.readline, b""):
+                cola.put(raw)
+        finally:
+            proc.stdout.close()
+            cola.put(None)  # end-of-stream marker
+
+    threading.Thread(target=lector, daemon=True).start()
+
+    eof = False
     try:
-        for raw in iter(proc.stdout.readline, b""):
+        while True:
+            try:
+                raw = cola.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if raw is None:
+                eof = True
+                break
             yield raw.decode("utf-8", errors="replace")
     finally:
-        proc.terminate()
-        code = proc.wait()
-        if code not in (0, None) and code != -15:
-            print(f"\n[ERROR] Se perdió la conexión SSH con Wazuh (código {code}). "
-                  "Revisar que la VM esté arriba y que la autenticación por llave funcione:\n"
-                  f"  ssh -o BatchMode=yes {destino} \"echo ok\"")
+        if eof:
+            try:
+                codigo = proc.wait(timeout=eof_wait)
+            except subprocess.TimeoutExpired:
+                codigo = _detener(proc)
+        else:
+            _detener(proc)
+    raise StreamCerrado(codigo)  # only reached after an unexpected EOF
 
 
 def lineas_archivo(ruta):
@@ -142,6 +216,7 @@ def main():
 
     salida = valor("--convert")
     convertidas, vistos = [], set()
+    codigo_salida = 0
     conn = None if salida else triage.init_db()
     if conn:
         print(f"Modo={triage.MODE} | nivel mínimo {triage.MIN_LEVEL} | "
@@ -170,6 +245,15 @@ def main():
             triage.procesar_alerta(conn, alerta, forzar_nuevo=forzar)
     except KeyboardInterrupt:
         print("\nDetenido por el analista.")
+    except StreamCerrado as e:
+        destino = valor("--ssh")
+        print(f"\n[ERROR] {e}\n  Revisar que la VM de Wazuh esté arriba y que la llave SSH funcione:\n"
+              f"    ssh -o BatchMode=yes {destino} \"echo ok\"", file=sys.stderr)
+        codigo_salida = EXIT_STREAM_LOST
+    finally:
+        # Voluntary stop: closing the generator stops and reaps ssh.
+        if hasattr(fuente, "close"):
+            fuente.close()
 
     if salida:
         with open(salida, "w", encoding="utf-8") as f:
@@ -177,7 +261,8 @@ def main():
         print(f"{len(convertidas)} alertas convertidas -> {salida}")
     if conn:
         conn.close()
+    return codigo_salida
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
