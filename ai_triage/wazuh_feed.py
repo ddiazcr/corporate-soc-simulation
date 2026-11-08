@@ -41,6 +41,8 @@ MAX_RAW = 1500  # cap the raw event text sent to the model
 EOF_WAIT_S = 5.0    # bounded wait for ssh's exit status after the stream ends
 STOP_WAIT_S = 5.0   # bounded wait after terminate() before kill()
 EXIT_STREAM_LOST = 2
+EXIT_REMOTE_NO_READ = 3   # remote preflight: alerts.json missing or unreadable
+QUEUE_MAX = 1000          # bounded hand-off between the reader thread and main
 
 
 class StreamCerrado(RuntimeError):
@@ -52,9 +54,14 @@ class StreamCerrado(RuntimeError):
 
     def __init__(self, codigo):
         self.codigo = codigo
-        super().__init__(
-            f"El stream de alertas se cerró inesperadamente "
-            f"(código de salida de ssh: {codigo}). No se están recibiendo alertas.")
+        if codigo == EXIT_REMOTE_NO_READ:
+            msg = (f"El usuario SSH no puede leer {ALERTS_PATH} en el manager "
+                   f"(código {codigo}). Solución, en el manager: "
+                   f"sudo usermod -aG wazuh <usuario>  y volver a iniciar sesión.")
+        else:
+            msg = (f"El stream de alertas se cerró inesperadamente "
+                   f"(código de salida de ssh: {codigo}). No se están recibiendo alertas.")
+        super().__init__(msg)
 
 
 def _get(d, *path, default=None):
@@ -119,8 +126,24 @@ def comando_ssh(destino):
         "ssh", "-T",
         "-o", "BatchMode=yes",
         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-        destino, f"stdbuf -oL tail -n 0 -F {ALERTS_PATH}",
+        destino, comando_remoto(),
     ]
+
+
+def comando_remoto(ruta=None):
+    """Remote shell command run by the live session.
+
+    * Preflight: `tail -F` on an unreadable file does not exit, it retries
+      quietly; check readability first and exit with EXIT_REMOTE_NO_READ.
+    * Print the remote PID on stderr. `exec` keeps the same PID through stdbuf
+      into tail, so this is the PID of *this* session's tail: a test can stop
+      exactly this session without touching other SSH sessions.
+    No double quotes, so the string survives Windows argument quoting.
+    """
+    ruta = ruta or ALERTS_PATH
+    return (f"test -r {ruta} || {{ echo wazuh_feed: cannot read {ruta} >&2; exit {EXIT_REMOTE_NO_READ}; }}; "
+            f"echo wazuh_feed: remote tail pid $$ >&2; "
+            f"exec stdbuf -oL tail -n 0 -F {ruta}")
 
 
 def _detener(proc):
@@ -134,7 +157,7 @@ def _detener(proc):
     return proc.wait()
 
 
-def lineas_ssh(destino, eof_wait=EOF_WAIT_S):
+def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX):
     """Yield alert lines from the manager as they are written.
 
     Two different endings:
@@ -157,17 +180,33 @@ def lineas_ssh(destino, eof_wait=EOF_WAIT_S):
     # Binary, unbuffered pipe read line by line: no text-mode read-ahead, so each
     # alert is handed over as soon as its line arrives.
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0, **grupo)
-    cola = queue.Queue()
+    print(f"  ssh local PID: {proc.pid}")
+    # Bounded: if triage falls behind (a human answering the approval prompt),
+    # the reader blocks instead of buffering without limit, and the backlog
+    # waits in the pipe/ssh. `parar` lets a blocked reader give up on a stop.
+    cola = queue.Queue(maxsize=cola_max)
+    parar = threading.Event()
+
+    def entregar(item):
+        while not parar.is_set():
+            try:
+                cola.put(item, timeout=0.2)
+                return True
+            except queue.Full:
+                continue
+        return False
 
     def lector():
         try:
             for raw in iter(proc.stdout.readline, b""):
-                cola.put(raw)
+                if not entregar(raw):
+                    break
         finally:
             proc.stdout.close()
-            cola.put(None)  # end-of-stream marker
+            entregar(None)  # end-of-stream marker (skipped once stopping)
 
-    threading.Thread(target=lector, daemon=True).start()
+    hilo = threading.Thread(target=lector, name="wazuh-feed-lector", daemon=True)
+    hilo.start()
 
     eof = False
     try:
@@ -187,7 +226,9 @@ def lineas_ssh(destino, eof_wait=EOF_WAIT_S):
             except subprocess.TimeoutExpired:
                 codigo = _detener(proc)
         else:
-            _detener(proc)
+            parar.set()       # unblock a reader stuck on a full queue
+            _detener(proc)    # its pipe closes, so readline() returns
+        hilo.join(timeout=STOP_WAIT_S)
     raise StreamCerrado(codigo)  # only reached after an unexpected EOF
 
 
@@ -246,9 +287,10 @@ def main():
     except KeyboardInterrupt:
         print("\nDetenido por el analista.")
     except StreamCerrado as e:
-        destino = valor("--ssh")
-        print(f"\n[ERROR] {e}\n  Revisar que la VM de Wazuh esté arriba y que la llave SSH funcione:\n"
-              f"    ssh -o BatchMode=yes {destino} \"echo ok\"", file=sys.stderr)
+        print(f"\n[ERROR] {e}", file=sys.stderr)
+        if e.codigo != EXIT_REMOTE_NO_READ:
+            print(f"  Revisar que la VM de Wazuh esté arriba y que la llave SSH funcione:\n"
+                  f"    ssh -o BatchMode=yes {valor('--ssh')} \"echo ok\"", file=sys.stderr)
         codigo_salida = EXIT_STREAM_LOST
     finally:
         # Voluntary stop: closing the generator stops and reaps ssh.

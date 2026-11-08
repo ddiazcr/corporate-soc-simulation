@@ -153,43 +153,68 @@ AI_MODE=REAL python3 wazuh_feed.py --ssh <user>@192.168.56.102
 |---|---|---|
 | Analyst presses Ctrl+C | ssh is stopped and reaped; prints `Detenido por el analista.` | `0` |
 | Stream closes unexpectedly (manager down, network cut, remote `tail` killed) | ssh's own status is collected with a bounded wait (5 s), then `[ERROR] El stream de alertas se cerró inesperadamente` on stderr | `2` — **even if ssh exited with 0** |
+| `alerts.json` missing or unreadable for the SSH user | Remote preflight (`test -r`) exits 3 before `tail` starts; `[ERROR] El usuario SSH no puede leer ...` with the `usermod -aG wazuh` fix | `2` |
 | Key rejected / missing | ssh fails immediately (`BatchMode=yes`), no password prompt | `2` |
 
-ssh runs in its own process group, so the console's Ctrl+C reaches only Python
-and a voluntary stop is never mistaken for a lost connection. The pipe is read
-in a separate thread so Ctrl+C is honoured even while no alerts are arriving.
+Design notes:
+- ssh runs in its own process group, so the console's Ctrl+C reaches only
+  Python and a voluntary stop is never mistaken for a lost connection.
+- The pipe is read in a separate thread so Ctrl+C is honoured even while no
+  alerts arrive. The hand-off queue is **bounded** (1000 lines): if a human is
+  slow at the approval prompt, the backlog waits in the pipe instead of
+  growing without limit, and a stop still releases a reader blocked on a full
+  queue.
+- Without the preflight, `tail -F` on an unreadable file does not exit — it
+  retries quietly, which looks exactly like "no alerts".
+- At start the feed prints `ssh local PID: N` and the manager prints
+  `wazuh_feed: remote tail pid M` (`exec` keeps that PID through `stdbuf` into
+  `tail`), so a test can target exactly this session.
 
 ### Live feed checks
 
-Automated (`python -m unittest discover -s tests -v`, POSIX, stand-in `ssh`
-on `PATH`) — **8/8 passing, 5 consecutive runs**:
+Results are kept separate by where they were produced.
 
-| Check | Test |
-|---|---|
-| An alert is delivered without waiting for the next one (< 2 s) | `test_alert_is_delivered_without_waiting_for_the_next_one` |
-| Remote EOF with exit code **0** is a failure | `test_remote_eof_with_exit_code_0_is_a_failure` |
-| Remote EOF with exit code 255 is a failure | `test_remote_eof_with_exit_code_255_is_a_failure` |
-| `--ssh` exits non-zero when the stream closes with code 0 | `test_ssh_mode_exits_nonzero_when_stream_closes_with_code_0` |
-| EOF while ssh keeps running → bounded wait, ssh reaped | `test_eof_while_ssh_keeps_running_uses_a_bounded_wait` |
-| Voluntary close stops ssh and reports nothing | `test_voluntary_close_stops_ssh_and_reports_nothing` |
-| Ctrl+C (SIGINT to the foreground group) releases ssh, exit 0, no `[ERROR]` | `test_ctrl_c_releases_ssh_without_reporting_a_lost_connection` |
-| Command is key-only and line-buffered | `test_command_is_key_only_and_line_buffered` |
+#### A. Stand-in ssh — Linux + bash (automated)
 
-**How remote EOF with exit code 0 was verified:** the stand-in `ssh` prints one
-alert line and exits with status 0. The generator yields the alert, then
-raises `StreamCerrado` with `codigo == 0`; run through `main()` as a separate
-process, `--ssh` mode exits with status 2 and prints the error on stderr.
-There is no natural way to make the real remote `tail -F` exit 0, so this case
-is covered by the stand-in only.
+`python -m unittest discover -s tests -v`. The stand-in is a bash script put
+first on `PATH`; these results are **not** OpenSSH results.
+**12/12 passing, 5 consecutive runs.** The full-queue test was also
+mutation-checked: with a blocking `put()` that ignores the stop signal it
+fails (reader thread left blocked), as intended.
 
-Manual, on the Windows analyst host — **PENDING (not yet executed)**:
+| Check | Test | Needs |
+|---|---|---|
+| Command is key-only and line-buffered | `test_command_is_key_only_and_line_buffered` | any OS |
+| Remote preflight + PID report, no double quotes | `test_remote_command_has_read_preflight_and_reports_its_pid` | any OS |
+| Alert delivered without waiting for the next one (< 2 s) | `test_alert_is_delivered_without_waiting_for_the_next_one` | Linux + bash |
+| Real remote command (preflight + `stdbuf` + `tail -F`) streams a line appended after start (< 3 s) | `test_real_remote_command_streams_a_line_appended_after_start` | Linux + bash |
+| Remote EOF with exit code **0** is a failure | `test_remote_eof_with_exit_code_0_is_a_failure` | Linux + bash |
+| Remote EOF with exit code 255 is a failure | `test_remote_eof_with_exit_code_255_is_a_failure` | Linux + bash |
+| `--ssh` exits 2 when the stream closes with code 0 | `test_ssh_mode_exits_nonzero_when_stream_closes_with_code_0` | Linux + bash |
+| Unreadable/missing `alerts.json` → visible failure, exit 2 | `test_unreadable_alerts_file_fails_visibly_with_exit_2` | Linux + bash |
+| EOF while ssh keeps running → bounded wait, ssh reaped | `test_eof_while_ssh_keeps_running_uses_a_bounded_wait` | Linux + bash |
+| Voluntary close stops ssh and reports nothing | `test_voluntary_close_stops_ssh_and_reports_nothing` | Linux + bash |
+| Cancellation with a **full queue** does not hang; reader thread exits | `test_cancel_with_a_full_queue_does_not_hang` | Linux + bash |
+| Ctrl+C (SIGINT to the foreground group) releases ssh, exit 0, no `[ERROR]` | `test_ctrl_c_releases_ssh_without_reporting_a_lost_connection` | Linux + bash |
+
+**Remote EOF with exit code 0:** the stand-in prints one alert line and exits 0.
+The generator yields the alert, then raises `StreamCerrado` with `codigo == 0`;
+through `main()` as a separate process, `--ssh` exits 2 with the error on
+stderr. The real remote `tail -F` has no natural way to exit 0, so this case is
+covered by the stand-in only. **Unreadable file:** tests run as root, which
+ignores file modes, so unreadability is exercised with a missing path
+(`test -r` is false in both cases).
+
+#### B. Windows analyst host — real OpenSSH, real manager (manual)
+
+**PENDING — not yet executed.** Each check records the PIDs printed at start.
 
 | # | Check | Procedure | Expected |
 |---|---|---|---|
-| W1 | Alert arrives without waiting for the next | Start the feed; on DC01 `klist purge` then `klist get MSSQLSvc/db01.lab.local:1433`; trigger nothing else | `>>> Wazuh ... regla 100212` within ~1 min (Wazuh ingestion delay ≈ 45 s), with no second alert needed |
-| W2 | Rejected key fails without a password prompt | `python wazuh_feed.py --ssh nokey@192.168.56.102` (user without the key) | Immediate `Permission denied (publickey...)` from ssh + `[ERROR]`, exit 2; **no** `password:` prompt |
-| W3 | Interrupting an active session is a visible failure | Feed running; on the manager `pkill -f "tail -n 0 -F /var/ossec/logs/alerts/alerts.json"` | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2 |
-| W4 | Ctrl+C releases the process without reporting a lost connection | Feed running, no alerts; press Ctrl+C once | `Detenido por el analista.` within ~1 s, no `[ERROR]`, `$LASTEXITCODE` = 0, no `ssh.exe` left (`Get-Process ssh -ErrorAction SilentlyContinue` empty) |
+| W1 | Alert arrives without waiting for the next | Start the feed. On DC01: `klist purge`, then `klist get MSSQLSvc/db01.lab.local:1433`. Trigger nothing else. | `>>> Wazuh ... regla 100212` within ~1 min (Wazuh ingestion ≈ 45 s), no second alert needed |
+| W2 | Rejected key fails without a password prompt | `python wazuh_feed.py --ssh nokey@192.168.56.102` | Immediate `Permission denied (publickey...)` + `[ERROR]`, `$LASTEXITCODE` = 2, **no** `password:` prompt |
+| W3 | Interrupting *this* session is a visible failure | Start the feed and note `remote tail pid M`. From Kali: `ssh wazuhadmin@192.168.56.102 "kill M"` (only that PID) | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2; other SSH sessions untouched |
+| W4 | Ctrl+C releases *this* process without reporting a lost connection | Start the feed and note `ssh local PID: N`. With no alerts arriving, press Ctrl+C once. Then `Get-Process -Id N` | `Detenido por el analista.` within ~1 s, no `[ERROR]`, `$LASTEXITCODE` = 0, `Get-Process -Id N` reports no such process |
 
 ## Prompt-injection test
 

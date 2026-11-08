@@ -1,11 +1,18 @@
 """
 Tests for the live SSH feed in wazuh_feed.py.
 
-A stand-in `ssh` executable (bash) is placed first on PATH so every scenario is
-deterministic: alert timing, remote exit status (including 0), a stream that
-closes while ssh keeps running, and a voluntary stop. POSIX only (the stand-in
-is a shell script); the equivalent checks on the Windows analyst host are
-manual and listed in ai_triage/README.md ("Live feed checks").
+Two groups:
+
+* SshCommandTests — platform-independent (any OS, no ssh needed).
+* StandInSshTests — REQUIRE LINUX + BASH. A stand-in `ssh` (bash script) is put
+  first on PATH so every scenario is deterministic: alert timing, remote exit
+  status (including 0), a stream that closes while ssh keeps running, a full
+  hand-off queue during cancellation, and the real remote command (preflight +
+  stdbuf + tail -F) executed locally against a temp file. Skipped elsewhere.
+
+These results come from the stand-in, not from OpenSSH. The checks on the
+Windows analyst host (real OpenSSH, real manager) are separate and listed in
+ai_triage/README.md ("Live feed checks").
 
 Run from the ai_triage folder:
     python -m unittest discover -s tests -v
@@ -15,6 +22,8 @@ import os
 import sys
 import time
 import signal
+import shutil
+import threading
 import tempfile
 import textwrap
 import unittest
@@ -43,6 +52,9 @@ FAKE_SSH = textwrap.dedent(r"""
       one_then_exit255) echo "$FAKE_LINE"; echo "ssh: connection lost" >&2; exit 255 ;;
       close_stdout_hang) echo "$FAKE_LINE"; exec 1>&-; exec sleep 30 ;;
       hang)            exec sleep 30 ;;
+      flood_then_hang) for i in $(seq 1 5000); do echo "$FAKE_LINE"; done; exec sleep 30 ;;
+      no_read)         echo "wazuh_feed: cannot read alerts.json" >&2; exit 3 ;;
+      exec_remote)     exec bash -c "${@: -1}" ;;   # run the real remote command locally
     esac
 """).lstrip()
 
@@ -60,7 +72,28 @@ def _alive(pid):
         return False
 
 
-class LiveFeedTests(unittest.TestCase):
+LINUX_BASH = sys.platform.startswith("linux") and shutil.which("bash") is not None
+
+
+class SshCommandTests(unittest.TestCase):
+    """Platform-independent: inspects the command line only."""
+
+    def test_command_is_key_only_and_line_buffered(self):
+        cmd = wazuh_feed.comando_ssh("lab@manager")
+        self.assertIn("-T", cmd)
+        self.assertIn("BatchMode=yes", cmd)
+        self.assertIn("exec stdbuf -oL tail -n 0 -F ", cmd[-1])
+
+    def test_remote_command_has_read_preflight_and_reports_its_pid(self):
+        remoto = wazuh_feed.comando_remoto("/x/alerts.json")
+        self.assertTrue(remoto.startswith("test -r /x/alerts.json || "))
+        self.assertIn(f"exit {wazuh_feed.EXIT_REMOTE_NO_READ}", remoto)
+        self.assertIn("remote tail pid $$", remoto)
+        self.assertNotIn('"', remoto, "double quotes would break Windows argument quoting")
+
+
+@unittest.skipUnless(LINUX_BASH, "requires Linux + bash (stand-in ssh is a bash script)")
+class StandInSshTests(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -142,11 +175,12 @@ class LiveFeedTests(unittest.TestCase):
         self.assertFalse(_alive(pid), "ssh left running after voluntary stop")
 
     # 5 ------------------------------------------------------------------ #
-    def _run_main(self, mode, line=ALERT_LEVEL8):
+    def _run_main(self, mode, line=ALERT_LEVEL8, alerts_path=None):
         env = dict(os.environ, FAKE_SSH_MODE=mode, FAKE_LINE=line, AI_MODE="SIMULADO",
                    PYTHONUNBUFFERED="1")
+        patch = f"wazuh_feed.ALERTS_PATH = {alerts_path!r}; " if alerts_path else ""
         code = ("import sys; sys.path.insert(0, %r); sys.argv=['wazuh_feed.py','--ssh','lab@manager'];"
-                "import wazuh_feed; sys.exit(wazuh_feed.main())" % AI_DIR)
+                "import wazuh_feed; %ssys.exit(wazuh_feed.main())" % (AI_DIR, patch))
         return subprocess.Popen([sys.executable, "-c", code], cwd=self.tmp.name, env=env,
                                 stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, start_new_session=True)
@@ -173,11 +207,54 @@ class LiveFeedTests(unittest.TestCase):
         self.assertFalse(_alive(pid), "ssh left running after Ctrl+C")
 
     # 6 ------------------------------------------------------------------ #
-    def test_command_is_key_only_and_line_buffered(self):
-        cmd = wazuh_feed.comando_ssh("lab@manager")
-        self.assertIn("-T", cmd)
-        self.assertIn("BatchMode=yes", cmd)
-        self.assertTrue(cmd[-1].startswith("stdbuf -oL tail -n 0 -F "))
+    def test_cancel_with_a_full_queue_does_not_hang(self):
+        os.environ["FAKE_SSH_MODE"] = "flood_then_hang"
+        gen = wazuh_feed.lineas_ssh("lab@manager", cola_max=5)
+        next(gen)
+        pid = self._ssh_pid()
+        time.sleep(0.5)  # let the reader fill the 5-slot queue and block on put()
+        t0 = time.time()
+        gen.close()
+        self.assertLess(time.time() - t0, wazuh_feed.STOP_WAIT_S + 1.0)
+        self.assertFalse(_alive(pid), "ssh left running")
+        time.sleep(0.5)
+        lectores = [t for t in threading.enumerate() if t.name == "wazuh-feed-lector"]
+        self.assertEqual(lectores, [], "reader thread still blocked on a full queue")
+
+    # 7 ------------------------------------------------------------------ #
+    def test_unreadable_alerts_file_fails_visibly_with_exit_2(self):
+        # Root ignores file modes, so "unreadable" is exercised with a missing
+        # path: `test -r` is false in both cases.
+        missing = os.path.join(self.tmp.name, "no-such-alerts.json")
+        p = self._run_main("exec_remote", alerts_path=missing)
+        out, err = p.communicate(timeout=20)
+        self.assertEqual(p.returncode, wazuh_feed.EXIT_STREAM_LOST)
+        self.assertIn("cannot read", err)          # remote preflight, ssh stderr
+        self.assertIn("no puede leer", err)        # feed's own diagnosis
+        self.assertIn("usermod -aG wazuh", err)
+
+    def test_real_remote_command_streams_a_line_appended_after_start(self):
+        alerts = os.path.join(self.tmp.name, "alerts.json")
+        open(alerts, "w").close()
+        os.environ["FAKE_SSH_MODE"] = "exec_remote"
+        old = wazuh_feed.ALERTS_PATH
+        wazuh_feed.ALERTS_PATH = alerts
+        try:
+            gen = wazuh_feed.lineas_ssh("lab@manager")
+
+            def append_later():
+                time.sleep(0.7)
+                with open(alerts, "a") as f:
+                    f.write(ALERT_100212 + "\n")
+            threading.Thread(target=append_later, daemon=True).start()
+            t0 = time.time()
+            line = next(gen)
+            elapsed = time.time() - t0
+            gen.close()
+        finally:
+            wazuh_feed.ALERTS_PATH = old
+        self.assertIn('"100212"', line)
+        self.assertLess(elapsed, 3.0)
 
 
 if __name__ == "__main__":
