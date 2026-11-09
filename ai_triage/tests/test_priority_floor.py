@@ -129,6 +129,24 @@ class DecoyVerificationTests(DecoyGuidMixin, unittest.TestCase):
         self.assertEqual(wazuh_feed.convertir(wazuh)["object_name"], "%{" + DECOY + "}")
 
 
+class RealDecoyConfigTests(unittest.TestCase):
+    """Uses the shipped configuration (no patching) and the objectName exactly
+    as it appeared in a real 100230 alert on 2026-11-07."""
+
+    REAL_OBJECT_NAME = "%{dd002ba1-3992-4539-bf9b-9ee77df0952d}"   # from alerts.json, verbatim
+
+    def test_shipped_guid_matches_the_real_event(self):
+        self.assertTrue(t.es_senuelo_verificado({"object_name": self.REAL_OBJECT_NAME}))
+
+    def test_shipped_guid_rejects_another_object_in_the_same_format(self):
+        self.assertFalse(t.es_senuelo_verificado({"object_name": "%{" + OTRA + "}"}))
+
+    def test_floor_applies_to_the_real_event_with_shipped_config(self):
+        v = t.aplicar_piso_tripwire("100230", veredicto("medium", "manual_review"),
+                                    {"rule_id": "100230", "object_name": self.REAL_OBJECT_NAME})
+        self.assertEqual(v["prioridad"], "high")
+
+
 class ModelVerdictTests(DecoyGuidMixin, unittest.TestCase):
 
     def test_model_verdict_is_recoverable_after_the_floor(self):

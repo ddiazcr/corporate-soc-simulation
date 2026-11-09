@@ -92,13 +92,17 @@ before applying any decoy policy:
 - The pipeline sets `decoy_verified` on the alert *after* any log content, so
   a log cannot claim to be the decoy; the prompt tells the model to rely only
   on that field and to assess any other 100230 on its own merits.
-- **Fail-safe:** while `DECOY_OBJECT_GUID` is `None` (not yet verified against
-  the DC), 100230 never receives the floor.
+- **Verified value:** `DECOY_OBJECT_GUID = dd002ba1-3992-4539-bf9b-9ee77df0952d`,
+  from `(Get-ADUser adm_backup_legacy).ObjectGUID` on DC01 (2026-11-08). It
+  matches the `objectName` of the real 100230 alerts, `%{dd002ba1-…}`, which a
+  test uses verbatim.
+- **Fail-safe:** with `DECOY_OBJECT_GUID = None`, 100230 never receives the
+  floor.
 
 Pending, separate change: harden the Wazuh rule itself by matching
 `objectName` against the decoy GUID, validated with `wazuh-logtest`.
 
-Tests: `tests/test_priority_floor.py` — 26 tests, any OS, no network. They
+Tests: `tests/test_priority_floor.py` — 29 tests, any OS, no network. They
 cover the live case, the decoy GUID check (same object class, different
 `objectName`: only the decoy activates the policy; no verified GUID → no floor;
 a spoofed `decoy_verified` is overwritten), never lowering, non-tripwire rules, no mutation, schema
