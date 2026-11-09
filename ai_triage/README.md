@@ -232,14 +232,20 @@ ignores file modes, so unreadability is exercised with a missing path
 
 #### B. Windows analyst host — real OpenSSH, real manager (manual)
 
-**PENDING — not yet executed.** Each check records the PIDs printed at start.
+**Executed 2026-11-08** on Windows 11 with the built-in OpenSSH client
+(`ssh.exe`) and Python 3.14, against the lab manager (192.168.56.102), with
+commit `cd24203`. Results as observed:
 
-| # | Check | Procedure | Expected |
-|---|---|---|---|
-| W1 | Alert arrives without waiting for the next | Start the feed. On DC01: `klist purge`, then `klist get MSSQLSvc/db01.lab.local:1433`. Trigger nothing else. | `>>> Wazuh ... regla 100212` within ~1 min (Wazuh ingestion ≈ 45 s), no second alert needed |
-| W2 | Rejected key fails without a password prompt | `python wazuh_feed.py --ssh nokey@192.168.56.102` | Immediate `Permission denied (publickey...)` + `[ERROR]`, `$LASTEXITCODE` = 2, **no** `password:` prompt |
-| W3 | Interrupting *this* session is a visible failure | Start the feed and note `remote reader pid M`. From Kali: `ssh wazuhadmin@192.168.56.102 "kill M"` (only that PID) | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2; other SSH sessions untouched |
-| W4 | Ctrl+C releases *this* process without reporting a lost connection | Start the feed and note `ssh local PID: N`. With no alerts arriving, press Ctrl+C once. Then `Get-Process -Id N` | `Detenido por el analista.` within ~1 s, no `[ERROR]`, `$LASTEXITCODE` = 0, `Get-Process -Id N` reports no such process |
+| # | Check | Session PIDs | Observed | Result |
+|---|---|---|---|---|
+| W1 | Alert arrives without waiting for the next | local 16744, remote 6132 | `klist purge` + `klist get MSSQLSvc/db01.lab.local:1433` on DC01 → `>>> Wazuh 2026-11-09T03:23:03 regla 100212`, verdict in 5.54 s ($0.004155), Telegram received: `critical` (confidence high), T1558.003. No second alert needed. | ✅ Pass |
+| W2 | Rejected key fails without a password prompt | local 6984 | `nokey@192.168.56.102: Permission denied (publickey,password).` then `[ERROR] … (código de salida de ssh: 255)`; `$LASTEXITCODE` = 2; no `password:` prompt | ✅ Pass |
+| W3 | Interrupting *this* session is a visible failure | local 16744, remote 6132 | From Kali, `kill 6132` (only that PID) → feed ended with `$LASTEXITCODE` = 2 | ✅ Pass |
+| W4 | Ctrl+C releases this process without reporting a lost connection | local 15268, remote 6970 | One Ctrl+C with no alerts arriving → `$LASTEXITCODE` = 0 (the error path always exits 2); `Get-Process -Id 15268` → gone; from Kali, `ps -p 6970` → not running | ✅ Pass |
+
+Before the follower fix, W1 failed on the same host: Wazuh raised 100212
+while the feed was listening and nothing was delivered. See *Why the feed does
+not use `tail -F`* above.
 
 ## Prompt-injection test
 
