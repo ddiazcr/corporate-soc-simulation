@@ -8,7 +8,7 @@ Two groups:
   first on PATH so every scenario is deterministic: alert timing, remote exit
   status (including 0), a stream that closes while ssh keeps running, a full
   hand-off queue during cancellation, and the real remote command (preflight +
-  stdbuf + tail -F) executed locally against a temp file. Skipped elsewhere.
+  python3 follower) executed locally against a temp file. Skipped elsewhere.
 
 These results come from the stand-in, not from OpenSSH. The checks on the
 Windows analyst host (real OpenSSH, real manager) are separate and listed in
@@ -54,7 +54,9 @@ FAKE_SSH = textwrap.dedent(r"""
       hang)            exec sleep 30 ;;
       flood_then_hang) for i in $(seq 1 5000); do echo "$FAKE_LINE"; done; exec sleep 30 ;;
       no_read)         echo "wazuh_feed: cannot read alerts.json" >&2; exit 3 ;;
-      exec_remote)     exec bash -c "${@: -1}" ;;   # run the real remote command locally
+      exec_remote)     # run the real remote command locally; on TERM, stop the whole
+                       # group, like sshd closing the session ends the remote side
+                       trap 'kill 0' TERM; bash -c "${@: -1}" & wait $!; exit $? ;;
     esac
 """).lstrip()
 
@@ -78,17 +80,22 @@ LINUX_BASH = sys.platform.startswith("linux") and shutil.which("bash") is not No
 class SshCommandTests(unittest.TestCase):
     """Platform-independent: inspects the command line only."""
 
-    def test_command_is_key_only_and_line_buffered(self):
+    def test_command_is_key_only_and_uses_the_python_follower(self):
         cmd = wazuh_feed.comando_ssh("lab@manager")
         self.assertIn("-T", cmd)
         self.assertIn("BatchMode=yes", cmd)
-        self.assertIn("exec stdbuf -oL tail -n 0 -F ", cmd[-1])
+        self.assertIn("base64 -d | python3 -u - ", cmd[-1])
+        self.assertNotIn("tail", cmd[-1], "uutils tail -F does not follow; must not be used")
 
     def test_remote_command_has_read_preflight_and_reports_its_pid(self):
         remoto = wazuh_feed.comando_remoto("/x/alerts.json")
         self.assertTrue(remoto.startswith("test -r /x/alerts.json || "))
         self.assertIn(f"exit {wazuh_feed.EXIT_REMOTE_NO_READ}", remoto)
-        self.assertIn("remote tail pid $$", remoto)
+        import base64, re
+        b64 = re.search(r"echo (\S+) \| base64 -d", remoto).group(1)
+        seguidor = base64.b64decode(b64).decode()
+        self.assertEqual(seguidor, wazuh_feed.SEGUIDOR_PY)
+        self.assertIn("remote reader pid", seguidor)
         self.assertNotIn('"', remoto, "double quotes would break Windows argument quoting")
 
 
@@ -232,6 +239,66 @@ class StandInSshTests(unittest.TestCase):
         self.assertIn("cannot read", err)          # remote preflight, ssh stderr
         self.assertIn("no puede leer", err)        # feed's own diagnosis
         self.assertIn("usermod -aG wazuh", err)
+
+    def _seguir(self, alerts, accion, timeout=6.0):
+        """Run the real remote command (via the stand-in) against `alerts`,
+        call `accion()` in a thread, and return the first delivered line."""
+        os.environ["FAKE_SSH_MODE"] = "exec_remote"
+        old = wazuh_feed.ALERTS_PATH
+        wazuh_feed.ALERTS_PATH = alerts
+        try:
+            gen = wazuh_feed.lineas_ssh("lab@manager")
+            threading.Thread(target=accion, daemon=True).start()
+            t0 = time.time()
+            line = next(gen)
+            elapsed = time.time() - t0
+            gen.close()
+        finally:
+            wazuh_feed.ALERTS_PATH = old
+        self.assertLess(elapsed, timeout)
+        return line
+
+    def test_follower_holds_a_partial_line_until_its_newline(self):
+        alerts = os.path.join(self.tmp.name, "alerts.json")
+        open(alerts, "w").close()
+        mitad = len(ALERT_100212) // 2
+
+        def escribir_en_dos_partes():
+            time.sleep(0.8)
+            with open(alerts, "a") as f:
+                f.write(ALERT_100212[:mitad]); f.flush()
+                time.sleep(1.2)          # follower polls in between
+                f.write(ALERT_100212[mitad:] + "\n")
+        line = self._seguir(alerts, escribir_en_dos_partes)
+        self.assertEqual(line.strip(), ALERT_100212)   # one complete line, not two halves
+
+    def test_follower_reopens_a_rotated_file(self):
+        alerts = os.path.join(self.tmp.name, "alerts.json")
+        open(alerts, "w").close()
+
+        def rotar_y_escribir():
+            time.sleep(0.8)
+            os.rename(alerts, alerts + ".1")             # rotation: new file, new inode
+            with open(alerts, "w") as f:
+                f.write(ALERT_100212 + "\n")
+        line = self._seguir(alerts, rotar_y_escribir)
+        self.assertIn('"100212"', line)
+
+    def test_follower_exits_when_the_session_closes_with_no_alerts(self):
+        """Real remote command, no alerts arriving. Closing the reader side (what
+        sshd does when the SSH session ends) must end the remote follower, not
+        leave it polling forever on the manager."""
+        alerts = os.path.join(self.tmp.name, "alerts.json")
+        open(alerts, "w").close()
+        p = subprocess.Popen(["bash", "-c", wazuh_feed.comando_remoto(alerts)],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        time.sleep(1.0)          # follower is up and idle
+        p.stdout.close()         # session gone
+        try:
+            p.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            p.kill(); p.wait()
+            self.fail("remote follower kept running after the session closed")
 
     def test_real_remote_command_streams_a_line_appended_after_start(self):
         alerts = os.path.join(self.tmp.name, "alerts.json")

@@ -130,7 +130,8 @@ still below the cacheable minimum, so there is no cache discount yet.
 
 The manager sits on an offline host-only network, so the model is never
 called from the SIEM. `wazuh_feed.py` runs on the analyst workstation, streams
-the manager's `alerts.json` over one SSH session (`tail -F`), maps each Wazuh
+the manager's `alerts.json` over one SSH session (a small python3 follower on
+the manager, see below), maps each Wazuh
 alert to the pipeline format and triages Nimbrek rules (`1002xx`) at level ≥ 10
 as they fire. The approval gate still applies to every case.
 
@@ -146,6 +147,27 @@ ssh -o BatchMode=yes <user>@192.168.56.102 "echo ok"
 AI_MODE=REAL python3 wazuh_feed.py --ssh <user>@192.168.56.102
 # or replay a copy:   python3 wazuh_feed.py --file alerts.json
 ```
+
+### Why the feed does not use `tail -F` (diagnosed 2026-11-08)
+
+The live feed stayed silent although Wazuh raised the alerts. The break was
+localized one stage at a time, from the analyst host:
+
+| Test | Result | Conclusion |
+|---|---|---|
+| Remote loop printing `date` every 2 s, through a pipe (PowerShell, then Python) | One line every 2 s | SSH transport and Python pipe reads are fine |
+| File size of `alerts.json` sampled every second while an SSH login generated alerts | Grew 1–2 s after the login, same inode | Wazuh writes immediately, no rotation |
+| `timeout 20 tail -n 0 -F alerts.json \| wc -c` on the manager, same trigger | `0` bytes | The remote `tail -F` does not follow the file |
+| `tail --version` | `tail (uutils coreutils) 0.8.0` | This Ubuntu ships the Rust reimplementation of coreutils |
+
+An earlier hypothesis — that Windows' `ssh.exe` held back output written to a
+pipe — was **disproved** by the `date` loop and is recorded here so it is not
+repeated. The feed now runs a small python3 follower on the manager instead of
+`tail`: it seeks to the end, emits complete lines only (a line still being
+written is held until its newline), reopens the file on rotation or
+truncation, and exits on its own when the SSH session closes, even if no
+alert arrives. It travels base64-encoded so the command has no quotes to break
+on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 
 ### How the live stream ends
 
@@ -164,11 +186,11 @@ Design notes:
   slow at the approval prompt, the backlog waits in the pipe instead of
   growing without limit, and a stop still releases a reader blocked on a full
   queue.
-- Without the preflight, `tail -F` on an unreadable file does not exit — it
-  retries quietly, which looks exactly like "no alerts".
+- Without the preflight, an unreadable file would look exactly like "no
+  alerts".
 - At start the feed prints `ssh local PID: N` and the manager prints
-  `wazuh_feed: remote tail pid M` (`exec` keeps that PID through `stdbuf` into
-  `tail`), so a test can target exactly this session.
+  `wazuh_feed: remote reader pid M` (printed by the follower itself), so a
+  test can target exactly this session.
 
 ### Live feed checks
 
@@ -178,7 +200,7 @@ Results are kept separate by where they were produced.
 
 `python -m unittest discover -s tests -v`. The stand-in is a bash script put
 first on `PATH`; these results are **not** OpenSSH results.
-**12/12 passing, 5 consecutive runs.** The full-queue test was also
+**15/15 passing, 3 consecutive runs.** The full-queue test was also
 mutation-checked: with a blocking `put()` that ignores the stop signal it
 fails (reader thread left blocked), as intended.
 
@@ -187,7 +209,10 @@ fails (reader thread left blocked), as intended.
 | Command is key-only and line-buffered | `test_command_is_key_only_and_line_buffered` | any OS |
 | Remote preflight + PID report, no double quotes | `test_remote_command_has_read_preflight_and_reports_its_pid` | any OS |
 | Alert delivered without waiting for the next one (< 2 s) | `test_alert_is_delivered_without_waiting_for_the_next_one` | Linux + bash |
-| Real remote command (preflight + `stdbuf` + `tail -F`) streams a line appended after start (< 3 s) | `test_real_remote_command_streams_a_line_appended_after_start` | Linux + bash |
+| Real remote command (preflight + python3 follower) streams a line appended after start (< 3 s) | `test_real_remote_command_streams_a_line_appended_after_start` | Linux + bash |
+| Follower holds a partial line until its newline (one complete line, not two halves) | `test_follower_holds_a_partial_line_until_its_newline` | Linux + bash |
+| Follower reopens a rotated file (new inode) | `test_follower_reopens_a_rotated_file` | Linux + bash |
+| Follower exits when the session closes with no alerts (mutation-checked) | `test_follower_exits_when_the_session_closes_with_no_alerts` | Linux + bash |
 | Remote EOF with exit code **0** is a failure | `test_remote_eof_with_exit_code_0_is_a_failure` | Linux + bash |
 | Remote EOF with exit code 255 is a failure | `test_remote_eof_with_exit_code_255_is_a_failure` | Linux + bash |
 | `--ssh` exits 2 when the stream closes with code 0 | `test_ssh_mode_exits_nonzero_when_stream_closes_with_code_0` | Linux + bash |
@@ -200,7 +225,7 @@ fails (reader thread left blocked), as intended.
 **Remote EOF with exit code 0:** the stand-in prints one alert line and exits 0.
 The generator yields the alert, then raises `StreamCerrado` with `codigo == 0`;
 through `main()` as a separate process, `--ssh` exits 2 with the error on
-stderr. The real remote `tail -F` has no natural way to exit 0, so this case is
+stderr. The real remote follower has no natural way to exit 0, so this case is
 covered by the stand-in only. **Unreadable file:** tests run as root, which
 ignores file modes, so unreadability is exercised with a missing path
 (`test -r` is false in both cases).
@@ -213,7 +238,7 @@ ignores file modes, so unreadability is exercised with a missing path
 |---|---|---|---|
 | W1 | Alert arrives without waiting for the next | Start the feed. On DC01: `klist purge`, then `klist get MSSQLSvc/db01.lab.local:1433`. Trigger nothing else. | `>>> Wazuh ... regla 100212` within ~1 min (Wazuh ingestion ≈ 45 s), no second alert needed |
 | W2 | Rejected key fails without a password prompt | `python wazuh_feed.py --ssh nokey@192.168.56.102` | Immediate `Permission denied (publickey...)` + `[ERROR]`, `$LASTEXITCODE` = 2, **no** `password:` prompt |
-| W3 | Interrupting *this* session is a visible failure | Start the feed and note `remote tail pid M`. From Kali: `ssh wazuhadmin@192.168.56.102 "kill M"` (only that PID) | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2; other SSH sessions untouched |
+| W3 | Interrupting *this* session is a visible failure | Start the feed and note `remote reader pid M`. From Kali: `ssh wazuhadmin@192.168.56.102 "kill M"` (only that PID) | `[ERROR] El stream de alertas se cerró inesperadamente`, `$LASTEXITCODE` = 2; other SSH sessions untouched |
 | W4 | Ctrl+C releases *this* process without reporting a lost connection | Start the feed and note `ssh local PID: N`. With no alerts arriving, press Ctrl+C once. Then `Get-Process -Id N` | `Detenido por el analista.` within ~1 s, no `[ERROR]`, `$LASTEXITCODE` = 0, `Get-Process -Id N` reports no such process |
 
 ## Prompt-injection test
@@ -240,7 +265,7 @@ mode, since they reuse a recent rule/IP pair with altered content.
 | `system_prompt_ad.txt` | The static triage instructions and injection defenses. |
 | `sample_ad_alerts.json` | The four validated detections, two injection cases, one below-threshold alert. |
 | `eval_mixed_alerts.json` | Labeled benchmark: 4 benign look-alikes, 4 attacks, 2 injections. |
-| `wazuh_feed.py` | Streams real Wazuh alerts (SSH `tail -F` on `alerts.json`) into the pipeline. |
+| `wazuh_feed.py` | Streams real Wazuh alerts (SSH + python3 follower on `alerts.json`) into the pipeline. |
 | `eval_results.json` | Created by `--eval`: per-alert verdicts and the accuracy summary. |
 | `casos_ad.db` | Created on run: case files (`casos`) and the human decision log (`decisiones`). |
 

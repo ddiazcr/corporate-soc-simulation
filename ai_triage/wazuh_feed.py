@@ -8,7 +8,7 @@ qualifying alert as it arrives. Nothing is pushed from the SIEM to the
 Internet, and nothing is ever executed against the domain.
 
 Usage
-  Live (streams new alerts as Wazuh writes them; one SSH session):
+  Live (streams new alerts as Wazuh writes them; one SSH session, python3 on the manager):
     python wazuh_feed.py --ssh usuario@192.168.56.102
   Replay a copy of alerts.json (or '-' for stdin):
     python wazuh_feed.py --file alerts.json
@@ -30,6 +30,7 @@ reader must not depend on an interactive password prompt. Verify with:
 import os
 import sys
 import json
+import base64
 import queue
 import threading
 import subprocess
@@ -49,7 +50,7 @@ class StreamCerrado(RuntimeError):
     """The live alert stream ended without the analyst asking for it.
 
     Raised even when ssh exits with status 0: in live mode the remote
-    `tail -F` never ends on its own, so any end of stream is a failure.
+    follower never ends on its own, so any end of stream is a failure.
     """
 
     def __init__(self, codigo):
@@ -120,8 +121,6 @@ def comando_ssh(destino):
     # -T: no remote TTY. BatchMode: key-based auth only, so a rejected key fails
     #     fast instead of silently waiting on a password prompt.
     # ServerAlive*: detect a dead manager instead of hanging forever.
-    # stdbuf -oL: force the remote tail to flush line by line when its stdout is
-    #     not a terminal (otherwise alerts can sit in a block buffer).
     return [
         "ssh", "-T",
         "-o", "BatchMode=yes",
@@ -130,20 +129,67 @@ def comando_ssh(destino):
     ]
 
 
+# Remote follower for alerts.json, run with python3 on the manager.
+# Why not `tail -F`: the manager runs uutils coreutils (`tail (uutils
+# coreutils) 0.8.0`), and its -F printed the initial lines but never the lines
+# appended afterwards (verified 2026-11-08: the file grew by 2,782 bytes while
+# `timeout 20 tail -n 0 -F alerts.json | wc -c` returned 0). This reader seeks
+# to the end, emits complete lines only (a line still being written is held
+# until its newline), flushes each one, and reopens the file when it is
+# rotated (new inode) or truncated.
+SEGUIDOR_PY = r'''# Remote alerts.json follower (runs on the manager under python3).
+# Replaces `tail -F`: this Ubuntu ships uutils tail 0.8.0, whose -F did not
+# deliver appended lines. Seeks to the end, emits complete lines only, and
+# reopens the file when it is rotated (new inode) or truncated.
+import os, sys, time, select
+path = sys.argv[1]
+# Exit when the reader side is gone (SSH session closed), even if no alert
+# arrives to trigger a broken-pipe error: POLLERR/POLLHUP are always reported.
+salida = select.poll()
+salida.register(sys.stdout.fileno(), 0)
+sys.stderr.write("wazuh_feed: remote reader pid %d\n" % os.getpid())
+sys.stderr.flush()
+f = open(path, "rb")
+f.seek(0, 2)
+ino = os.fstat(f.fileno()).st_ino
+pend = b""
+while True:
+    chunk = f.readline()
+    if chunk:
+        pend += chunk
+        if pend.endswith(b"\n"):
+            sys.stdout.buffer.write(pend)
+            sys.stdout.flush()
+            pend = b""
+        continue
+    time.sleep(0.5)
+    if salida.poll(0):
+        sys.exit(0)
+    try:
+        st = os.stat(path)
+    except OSError:
+        continue
+    if st.st_ino != ino or st.st_size < f.tell():
+        f.close()
+        f = open(path, "rb")
+        ino = os.fstat(f.fileno()).st_ino
+        pend = b""
+'''
+
+
 def comando_remoto(ruta=None):
     """Remote shell command run by the live session.
 
-    * Preflight: `tail -F` on an unreadable file does not exit, it retries
-      quietly; check readability first and exit with EXIT_REMOTE_NO_READ.
-    * Print the remote PID on stderr. `exec` keeps the same PID through stdbuf
-      into tail, so this is the PID of *this* session's tail: a test can stop
-      exactly this session without touching other SSH sessions.
-    No double quotes, so the string survives Windows argument quoting.
+    * Preflight: an unreadable file must fail visibly; exit EXIT_REMOTE_NO_READ.
+    * The follower travels base64-encoded and is fed to `python3 -` on stdin,
+      so the command has no quotes to survive Windows argument quoting.
+    * The follower prints its own PID on stderr (`remote reader pid N`), so a
+      test can stop exactly this session without touching other SSH sessions.
     """
     ruta = ruta or ALERTS_PATH
+    b64 = base64.b64encode(SEGUIDOR_PY.encode()).decode()
     return (f"test -r {ruta} || {{ echo wazuh_feed: cannot read {ruta} >&2; exit {EXIT_REMOTE_NO_READ}; }}; "
-            f"echo wazuh_feed: remote tail pid $$ >&2; "
-            f"exec stdbuf -oL tail -n 0 -F {ruta}")
+            f"echo {b64} | base64 -d | python3 -u - {ruta}")
 
 
 def _detener(proc):
