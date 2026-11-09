@@ -350,11 +350,16 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
             f"Resumen: {analisis['resumen']}"
         )
     else:
+        piso = prioridad_por_regla(alerta.get("rule_id"))
         mensaje = (
             f"Caso {caso_id} — análisis de IA NO disponible\n"
             f"Regla: {alerta.get('rule_id')} | {alerta.get('src_ip')} -> {alerta.get('dest_ip')}\n"
-            f"Revisar manualmente."
         )
+        if piso:
+            mensaje += (f"Prioridad: {piso} (por regla tripwire; sin veredicto de IA, confianza n/a)\n"
+                        f"Revisión humana PRIORITARIA (escalate_tier2).")
+        else:
+            mensaje += "Revisar manualmente."
     if caso_relacionado:
         mensaje += f"\nNota: mismo rule/IPs que el caso {caso_relacionado} pero contenido distinto."
     enviar_telegram(mensaje)
@@ -367,6 +372,21 @@ def limpiar(alerta):
     """Drop evaluation-only keys (leading underscore, e.g. _expected) so ground
     truth never reaches the model."""
     return {k: v for k, v in alerta.items() if not k.startswith("_")}
+
+
+def prioridad_por_regla(rule_id):
+    """Priority a tripwire rule justifies on its own (None for other rules).
+    Used when there is no valid model verdict: the policy must not depend on
+    the model being available."""
+    return PISO_TRIPWIRE.get(str(rule_id))
+
+
+def veredicto_modelo(analisis):
+    """The model's own verdict, before the floor (for audit and scoring)."""
+    if not analisis or not analisis.get("piso_aplicado"):
+        return analisis
+    pa = analisis["piso_aplicado"]
+    return dict(analisis, prioridad=pa["prioridad_modelo"], accion_sugerida=pa["accion_modelo"])
 
 
 def aplicar_piso_tripwire(rule_id, analisis):
@@ -440,6 +460,20 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
         analisis, metricas, estado = None, {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}, "sin_analisis"
         print(f"[ERROR] Falló/invalidó el análisis de IA: {e}")
 
+    if analisis:
+        prioridad, confianza, accion = analisis["prioridad"], analisis["confianza"], analisis["accion_sugerida"]
+    else:
+        # No valid verdict. A tripwire keeps the priority the rule justifies on
+        # its own and asks for priority human review; confidence is NOT
+        # invented (it is the model's signal, and there is no model output).
+        piso = prioridad_por_regla(alerta.get("rule_id"))
+        prioridad = piso or "desconocida"
+        confianza = "n/a"
+        accion = "escalate_tier2" if piso else None
+        if piso:
+            print(f"  [PISO] regla tripwire {alerta.get('rule_id')} sin análisis de IA: "
+                  f"prioridad {piso} por regla, revisión humana prioritaria")
+
     conn.execute(
         "INSERT INTO casos (id, hash_dedup, huella_contenido, regla, mitre_id, origen, destino, "
         "primera_deteccion, ultima_deteccion, conteo, evidencia, analisis_ia, prioridad, confianza, "
@@ -449,9 +483,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
             (analisis or {}).get("mitre_id"), alerta.get("src_ip"), alerta.get("dest_ip"),
             ahora, ahora, 1, json.dumps(alerta, ensure_ascii=False),
             json.dumps(analisis, ensure_ascii=False) if analisis else None,
-            (analisis or {}).get("prioridad", "desconocida"),
-            (analisis or {}).get("confianza", "n/a"),
-            (analisis or {}).get("accion_sugerida"), estado,
+            prioridad, confianza, accion, estado,
         ),
     )
     conn.commit()
@@ -486,13 +518,19 @@ def main():
             fila = conn.execute("SELECT analisis_ia FROM casos WHERE id=?", (res[0],)).fetchone() if isinstance(res, tuple) else None
             analisis = json.loads(fila[0]) if fila and fila[0] else None
             esp = alerta["_expected"]
+            modelo = veredicto_modelo(analisis)
             if analisis:
-                ok, ok_iny = calificar(esp, analisis)
+                ok, ok_iny = calificar(esp, analisis)      # final decision, after policy
+                ok_modelo, _ = calificar(esp, modelo)       # model alone
             else:
-                ok, ok_iny = False, False  # no verdict counts as a miss
+                ok, ok_iny, ok_modelo = False, False, False  # no verdict counts as a miss
             resultados.append({
                 "rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
                 "esperado": esp["label"], "inyeccion_esperada": esp.get("injection", False),
+                "prioridad_modelo": (modelo or {}).get("prioridad"),
+                "accion_modelo": (modelo or {}).get("accion_sugerida"),
+                "correcto_modelo": ok_modelo,
+                "piso_aplicado": bool((analisis or {}).get("piso_aplicado")),
                 "prioridad": (analisis or {}).get("prioridad"), "accion": (analisis or {}).get("accion_sugerida"),
                 "inyeccion_detectada": (analisis or {}).get("possible_prompt_injection"),
                 "correcto": ok, "inyeccion_correcta": ok_iny, "por_que": esp.get("why"),
@@ -510,6 +548,8 @@ def main():
         resumen = {
             "modelo": MODEL, "alertas": len(resultados),
             "precision_global": f"{sum(r['correcto'] for r in resultados)}/{len(resultados)}",
+            "precision_modelo_solo": f"{sum(r['correcto_modelo'] for r in resultados)}/{len(resultados)}",
+            "veredictos_ajustados_por_politica": sum(r["piso_aplicado"] for r in resultados),
             "ataques_detectados": f"{sum(r['correcto'] for r in ataques)}/{len(ataques)}",
             "falsos_negativos": sum(not r["correcto"] for r in ataques),
             "benignos_bien_clasificados": f"{sum(r['correcto'] for r in benignos)}/{len(benignos)}",

@@ -73,33 +73,89 @@ class PriorityFloorTests(unittest.TestCase):
         self.assertIsNone(t.aplicar_piso_tripwire("100230", None))
 
 
-class FloorInPipelineTests(unittest.TestCase):
-    """End-to-end through procesar_alerta with a stubbed model verdict."""
+class ModelVerdictTests(unittest.TestCase):
 
-    def test_floor_is_applied_before_the_case_is_stored_and_notified(self):
+    def test_model_verdict_is_recoverable_after_the_floor(self):
+        final = t.aplicar_piso_tripwire("100230", veredicto("medium", "monitor"))
+        modelo = t.veredicto_modelo(final)
+        self.assertEqual((modelo["prioridad"], modelo["accion_sugerida"]), ("medium", "monitor"))
+        self.assertEqual((final["prioridad"], final["accion_sugerida"]), ("high", "escalate_tier2"))
+
+    def test_model_and_final_verdicts_are_scored_separately(self):
+        final = t.aplicar_piso_tripwire("100230", veredicto("medium", "monitor"))
+        ataque = {"label": "attack"}
+        self.assertFalse(t.calificar(ataque, t.veredicto_modelo(final))[0])  # model alone: miss
+        self.assertTrue(t.calificar(ataque, final)[0])                       # after policy: hit
+
+    def test_unfloored_verdict_is_its_own_model_verdict(self):
+        v = veredicto("critical", "escalate_tier2")
+        self.assertIs(t.veredicto_modelo(v), v)
+
+
+SIN_COSTO = {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}
+
+
+class FloorInPipelineTests(unittest.TestCase):
+    """End-to-end through procesar_alerta with a stubbed model."""
+
+    def _run(self, rule_id, analizar):
+        """Run one alert through procesar_alerta; return (case row, Telegram text)."""
         import tempfile
         tmp = tempfile.TemporaryDirectory()
         cwd = os.getcwd()
         os.chdir(tmp.name)
-        avisos = []
-        orig_analizar, orig_notificar = t.analizar_con_ia, t.notificar
+        mensajes = []
+        orig_analizar, orig_enviar = t.analizar_con_ia, t.enviar_telegram
         try:
-            t.analizar_con_ia = lambda alerta: (veredicto("medium", "manual_review"),
-                                               {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0})
-            t.notificar = lambda caso_id, alerta, analisis, estado, rel=None: avisos.append(analisis)
+            t.analizar_con_ia = analizar
+            t.enviar_telegram = mensajes.append  # capture the notification text
             conn = t.init_db()
-            alerta = {"rule_id": "100230", "level": 12, "src_ip": None, "dest_ip": "192.168.56.10",
+            alerta = {"rule_id": rule_id, "level": 12, "src_ip": None, "dest_ip": "192.168.56.10",
                       "raw_log": "4662 Read Property {dd002ba1-...}"}
-            caso_id, _ = t.procesar_alerta(conn, alerta, forzar_nuevo=True, entrada=lambda *_: "s")
-            fila = conn.execute("SELECT prioridad FROM casos WHERE id=?", (caso_id,)).fetchone()
+            res = t.procesar_alerta(conn, alerta, forzar_nuevo=True, entrada=lambda *_: "s")
+            caso_id = res[0] if isinstance(res, tuple) else res
+            fila = conn.execute("SELECT prioridad, confianza, accion_sugerida, estado, analisis_ia "
+                                "FROM casos WHERE id=?", (caso_id,)).fetchone()
             conn.close()
         finally:
-            t.analizar_con_ia, t.notificar = orig_analizar, orig_notificar
+            t.analizar_con_ia, t.enviar_telegram = orig_analizar, orig_enviar
             os.chdir(cwd)
             tmp.cleanup()
+        return fila, mensajes[0]
+
+    def test_floor_is_applied_before_the_case_is_stored_and_notified(self):
+        fila, msg = self._run("100230", lambda a: (veredicto("medium", "manual_review"), SIN_COSTO))
         self.assertEqual(fila[0], "high")
-        self.assertEqual(avisos[0]["prioridad"], "high")
-        self.assertEqual(avisos[0]["piso_aplicado"]["prioridad_modelo"], "medium")
+        self.assertIn("Prioridad: high", msg)
+        self.assertIn("[piso tripwire; modelo: medium]", msg)
+
+    def _falla(self, alerta):
+        raise RuntimeError("API no disponible")
+
+    def test_tripwire_keeps_high_priority_when_the_model_fails(self):
+        fila, msg = self._run("100230", self._falla)
+        prioridad, confianza, accion, estado, analisis_ia = fila
+        self.assertEqual(estado, "sin_analisis")
+        self.assertIsNone(analisis_ia)
+        self.assertEqual(prioridad, "high")            # from the rule, not the model
+        self.assertEqual(accion, "escalate_tier2")     # priority human review
+        self.assertEqual(confianza, "n/a")             # no invented confidence
+        self.assertIn("análisis de IA NO disponible", msg)
+        self.assertIn("Prioridad: high (por regla tripwire", msg)
+        self.assertIn("PRIORITARIA", msg)
+
+    def test_tripwire_keeps_high_priority_when_the_verdict_is_invalid(self):
+        def invalido(alerta):
+            return t.validar_esquema({"prioridad": "urgentisimo"}), SIN_COSTO
+        fila, msg = self._run("100212", invalido)
+        self.assertEqual((fila[0], fila[3]), ("high", "sin_analisis"))
+        self.assertIn("Prioridad: high (por regla tripwire", msg)
+
+    def test_non_tripwire_failure_is_unchanged(self):
+        fila, msg = self._run("100220", self._falla)
+        self.assertEqual((fila[0], fila[1], fila[2]), ("desconocida", "n/a", None))
+        self.assertIn("Revisar manualmente.", msg)
+        self.assertNotIn("tripwire", msg)
 
 
 if __name__ == "__main__":

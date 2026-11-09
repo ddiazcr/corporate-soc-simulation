@@ -45,39 +45,60 @@ runs any of them.
 
 Some rules can only fire on objects that have **no legitimate use**: the
 honeytoken SPN account (`100212`) and the decoy AD account (`100230`). For
-those, the verdict's priority is not left to the model:
+those, priority is a policy, not a model opinion:
 
 | Rule | Floor | Dismissive action (`monitor`, `mark_false_positive`) |
 |---|---|---|
 | `100212` honeytoken Kerberos ticket | `high` | replaced by `escalate_tier2` |
 | `100230` decoy account read | `high` | replaced by `escalate_tier2` |
 
-The floor only **raises**: a `critical` verdict stays `critical`, and other
-rules are untouched (`100220`, a privileged-group change, can be an approved
-change, so it keeps the model's judgement). When the floor changes a verdict,
-the model's original priority and action are stored under `piso_aplicado` in
-the case record, printed as `[PISO] ...`, and shown in the Telegram message
-(`[piso tripwire; modelo: medium]`).
+- **Only raises.** A `critical` verdict stays `critical`. Other rules are
+  untouched: `100220` (privileged-group change) can be an approved change; a
+  policy for it would have to depend on the group and on verifiable
+  authorization, not on the decoy logic.
+- **Holds without the model.** If the API fails or the verdict fails schema
+  validation, a tripwire case is still stored and notified as `high` with
+  `escalate_tier2` (priority human review), attributed to the rule, with state
+  `sin_analisis` and confidence `n/a`. Confidence is never invented: priority
+  says how soon to look, confidence says how well the evidence supports the
+  interpretation, and only the model provides the latter.
+- **Auditable.** When the floor changes a model verdict, the model's priority
+  and action are kept under `piso_aplicado`, printed as `[PISO] ...`, and shown
+  in Telegram (`[piso tripwire; modelo: medium]`). The model's confidence is
+  kept as is.
 
-**Why it exists — observed on 2026-11-07.** Two reads of the same decoy account
-(`100230`) received different priorities: `medium/manual_review` and
-`high/escalate_tier2`. It was not randomness (`temperature: 0`): event 4662
-identifies the object by GUID, not by name, and the system prompt described
-the honeytoken but not the decoy. Two fixes, both in this change:
+**What motivated it (2026-11-07).** Two reads of the same decoy account got
+different verdicts: `medium/manual_review` and `high/escalate_tier2`. The two
+outputs alone do not establish why they differed; they show that the outcome
+for a tripwire should not depend on the model. The system prompt also
+described the honeytoken but not the decoy; it now does, and frames account
+discovery as a hypothesis to corroborate (a single read can also come from a
+broad directory query), noting that 4662 names the object by GUID.
 
-1. The system prompt now describes the decoy and states that a missing name in
-   4662 is expected and is not a reason to lower priority.
-2. The deterministic floor above, so the outcome no longer depends on the
-   prompt being right. The model adds context and a summary; it does not decide
-   whether a tripwire can be ignored.
+**How rule 100230 identifies the decoy — and its limit.** The rule matches
+event 4662 with `accessMask 0x10` (Read Property) on an object of class `user`
+(`objectType bf967aba-…`, the schema GUID of the *user class*, the same for
+every account), excluding machine accounts. It does **not** match the decoy's
+own object GUID. Its selectivity comes from the SACL: `adm_backup_legacy` is the
+only account with a read-auditing SACL, so it is the only one that produces
+these events. If another user object ever gets a read SACL, this rule would
+fire for it too. Pending hardening: also match `objectName` against the
+decoy's `objectGUID` so the rule verifies the decoy itself.
 
-Tests: `tests/test_priority_floor.py` (10 tests, any OS), including the exact
-live case and an end-to-end run through `procesar_alerta`.
+Tests: `tests/test_priority_floor.py` — 16 tests, any OS, no network. They
+cover the live case, never lowering, non-tripwire rules, no mutation, schema
+validity, idempotence, an end-to-end run through `procesar_alerta`, **the model
+failing and the verdict being invalid** (priority checked in both the stored
+case and the notification), and scoring the model's verdict separately from
+the final decision.
 
-Benchmark note: the labeled benchmark below contains no `100212`/`100230`
-alerts, so the floor does not change its published score. The prompt change
-does, potentially; the real-mode benchmark has to be re-run before that score
-is quoted again (pending).
+**Benchmark.** `--eval` now reports `precision_modelo_solo` (the model's own
+verdicts) next to `precision_global` (the final decision after policy) and
+`veredictos_ajustados_por_politica`, so a demo shows what each part
+contributed. The labeled set has no `100212`/`100230` alerts, so the floor
+does not change its published score; the prompt change might, so the
+real-mode benchmark must be re-run before that score is quoted again
+(pending).
 
 ## Running it
 
