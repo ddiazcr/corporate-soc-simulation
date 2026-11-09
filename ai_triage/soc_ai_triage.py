@@ -84,7 +84,9 @@ ACCIONES_QUE_DESCARTAN = {"monitor", "mark_false_positive"}
 # (objectType is the class GUID, not the decoy's). The floor applies only when
 # the event's objectName is the decoy's own objectGUID. Fail-safe: while this
 # is None (not verified against the DC), 100230 never receives the floor.
-DECOY_OBJECT_GUID = None   # objectGUID of adm_backup_legacy, lower-case, no braces
+# objectGUID of adm_backup_legacy, verified on DC01 on 2026-11-08 with
+# (Get-ADUser adm_backup_legacy).ObjectGUID. Set to None to disable the 100230 floor.
+DECOY_OBJECT_GUID = "dd002ba1-3992-4539-bf9b-9ee77df0952d"
 _GUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
 
 
