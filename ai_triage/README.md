@@ -164,9 +164,20 @@ An earlier hypothesis — that Windows' `ssh.exe` held back output written to a
 pipe — was **disproved** by the `date` loop and is recorded here so it is not
 repeated. The feed now runs a small python3 follower on the manager instead of
 `tail`: it seeks to the end, emits complete lines only (a line still being
-written is held until its newline), reopens the file on rotation or
-truncation, and exits on its own when the SSH session closes, even if no
-alert arrives. It travels base64-encoded so the command has no quotes to break
+written is held until its newline), and exits on its own when the SSH session
+closes, even if no alert arrives. Every 0.5 s while idle it checks the path:
+
+- **Replacement (new inode)** → reopens the new file from the start. This is
+  tested (`test_follower_reopens_a_rotated_file`).
+- **Truncation in place (same inode)** → detected only when the size is seen
+  *below* the last read offset. If the same file is truncated and grows back
+  past that offset between two checks, the lines written in that window are
+  missed. This is a known limitation, not claimed as covered.
+- **How this manager rotates:** `alerts.json` shows a link count of 2 (a hard
+  link to the dated `logs/alerts/YYYY/Mon/ossec-alerts-DD.json`), which points
+  to daily rotation by creating a new `alerts.json` — the replacement case.
+  To be confirmed at a real rotation (00:00 UTC) by comparing
+  `ls -li alerts.json` before and after. It travels base64-encoded so the command has no quotes to break
 on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 
 ### How the live stream ends
@@ -200,7 +211,7 @@ Results are kept separate by where they were produced.
 
 `python -m unittest discover -s tests -v`. The stand-in is a bash script put
 first on `PATH`; these results are **not** OpenSSH results.
-**15/15 passing, 3 consecutive runs.** The full-queue test was also
+**16/16 passing.** The full-queue test was also
 mutation-checked: with a blocking `put()` that ignores the stop signal it
 fails (reader thread left blocked), as intended.
 
@@ -213,6 +224,7 @@ fails (reader thread left blocked), as intended.
 | Follower holds a partial line until its newline (one complete line, not two halves) | `test_follower_holds_a_partial_line_until_its_newline` | Linux + bash |
 | Follower reopens a rotated file (new inode) | `test_follower_reopens_a_rotated_file` | Linux + bash |
 | Follower exits when the session closes with no alerts (mutation-checked) | `test_follower_exits_when_the_session_closes_with_no_alerts` | Linux + bash |
+| The follower-test helper fails on time (and cleans up) if no line ever arrives | `test_silent_follower_cannot_hang_the_suite` | Linux + bash |
 | Remote EOF with exit code **0** is a failure | `test_remote_eof_with_exit_code_0_is_a_failure` | Linux + bash |
 | Remote EOF with exit code 255 is a failure | `test_remote_eof_with_exit_code_255_is_a_failure` | Linux + bash |
 | `--ssh` exits 2 when the stream closes with code 0 | `test_ssh_mode_exits_nonzero_when_stream_closes_with_code_0` | Linux + bash |
@@ -238,7 +250,7 @@ commit `cd24203`. Results as observed:
 
 | # | Check | Session PIDs | Observed | Result |
 |---|---|---|---|---|
-| W1 | Alert arrives without waiting for the next | local 16744, remote 6132 | `klist purge` + `klist get MSSQLSvc/db01.lab.local:1433` on DC01 → `>>> Wazuh 2026-11-09T03:23:03 regla 100212`, verdict in 5.54 s ($0.004155), Telegram received: `critical` (confidence high), T1558.003. No second alert needed. | ✅ Pass |
+| W1 | Alert arrives without waiting for the next | local 16744, remote 6132 | `klist purge` + `klist get MSSQLSvc/db01.lab.local:1433` on DC01 → `>>> Wazuh 2026-11-09T03:23:03 regla 100212`, model verdict latency 5.54 s for that run ($0.004155; end-to-end from the action on DC01 not measured here), Telegram received: `critical` (confidence high), T1558.003. No second alert needed. | ✅ Pass |
 | W2 | Rejected key fails without a password prompt | local 6984 | `nokey@192.168.56.102: Permission denied (publickey,password).` then `[ERROR] … (código de salida de ssh: 255)`; `$LASTEXITCODE` = 2; no `password:` prompt | ✅ Pass |
 | W3 | Interrupting *this* session is a visible failure | local 16744, remote 6132 | From Kali, `kill 6132` (only that PID) → feed ended with `$LASTEXITCODE` = 2 | ✅ Pass |
 | W4 | Ctrl+C releases this process without reporting a lost connection | local 15268, remote 6970 | One Ctrl+C with no alerts arriving → `$LASTEXITCODE` = 0 (the error path always exits 2); `Get-Process -Id 15268` → gone; from Kali, `ps -p 6970` → not running | ✅ Pass |

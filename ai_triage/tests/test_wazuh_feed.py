@@ -242,21 +242,40 @@ class StandInSshTests(unittest.TestCase):
 
     def _seguir(self, alerts, accion, timeout=6.0):
         """Run the real remote command (via the stand-in) against `alerts`,
-        call `accion()` in a thread, and return the first delivered line."""
+        call `accion()` in a thread, and return the first delivered line.
+
+        The deadline applies to the WAIT for the line: next(gen) runs in a
+        thread; if no line arrives in time, the stand-in's process group is
+        killed (ending the stream) and the test fails, so a follower that
+        stays silent with the session open cannot hang the suite."""
         os.environ["FAKE_SSH_MODE"] = "exec_remote"
         old = wazuh_feed.ALERTS_PATH
         wazuh_feed.ALERTS_PATH = alerts
+        resultado = {}
         try:
             gen = wazuh_feed.lineas_ssh("lab@manager")
+
+            def esperar_linea():
+                try:
+                    resultado["linea"] = next(gen)
+                except BaseException as e:   # StreamCerrado once the group is killed
+                    resultado["error"] = e
+
+            lector = threading.Thread(target=esperar_linea, daemon=True)
+            lector.start()
+            pid = self._ssh_pid()
             threading.Thread(target=accion, daemon=True).start()
-            t0 = time.time()
-            line = next(gen)
-            elapsed = time.time() - t0
+            lector.join(timeout)
+            if lector.is_alive():
+                os.killpg(pid, signal.SIGKILL)   # end the stream, release next()
+                lector.join(wazuh_feed.EOF_WAIT_S + wazuh_feed.STOP_WAIT_S)
+                self.fail(f"no line delivered within {timeout}s")
             gen.close()
         finally:
             wazuh_feed.ALERTS_PATH = old
-        self.assertLess(elapsed, timeout)
-        return line
+        if "error" in resultado:
+            raise resultado["error"]
+        return resultado["linea"]
 
     def test_follower_holds_a_partial_line_until_its_newline(self):
         alerts = os.path.join(self.tmp.name, "alerts.json")
@@ -303,25 +322,24 @@ class StandInSshTests(unittest.TestCase):
     def test_real_remote_command_streams_a_line_appended_after_start(self):
         alerts = os.path.join(self.tmp.name, "alerts.json")
         open(alerts, "w").close()
-        os.environ["FAKE_SSH_MODE"] = "exec_remote"
-        old = wazuh_feed.ALERTS_PATH
-        wazuh_feed.ALERTS_PATH = alerts
-        try:
-            gen = wazuh_feed.lineas_ssh("lab@manager")
 
-            def append_later():
-                time.sleep(0.7)
-                with open(alerts, "a") as f:
-                    f.write(ALERT_100212 + "\n")
-            threading.Thread(target=append_later, daemon=True).start()
-            t0 = time.time()
-            line = next(gen)
-            elapsed = time.time() - t0
-            gen.close()
-        finally:
-            wazuh_feed.ALERTS_PATH = old
+        def append_later():
+            time.sleep(0.7)
+            with open(alerts, "a") as f:
+                f.write(ALERT_100212 + "\n")
+        line = self._seguir(alerts, append_later, timeout=3.0)
         self.assertIn('"100212"', line)
-        self.assertLess(elapsed, 3.0)
+
+    def test_silent_follower_cannot_hang_the_suite(self):
+        """The helper's deadline itself: nothing is ever written, so it must
+        fail on time and leave no process behind."""
+        alerts = os.path.join(self.tmp.name, "alerts.json")
+        open(alerts, "w").close()
+        t0 = time.time()
+        with self.assertRaises(AssertionError):
+            self._seguir(alerts, lambda: None, timeout=1.5)
+        self.assertLess(time.time() - t0, 1.5 + wazuh_feed.EOF_WAIT_S + wazuh_feed.STOP_WAIT_S + 1)
+        self.assertFalse(_alive(self._ssh_pid()), "stand-in left running after the deadline")
 
 
 if __name__ == "__main__":
