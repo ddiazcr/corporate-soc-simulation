@@ -68,6 +68,18 @@ ACCIONES_PERMITIDAS = {
 PRIORIDADES = {"low", "medium", "high", "critical"}
 CONFIANZAS = {"low", "medium", "high"}
 
+# Tripwire rules: they only fire on objects that have no legitimate use (the
+# honeytoken SPN account, the decoy AD account). Their priority must not depend
+# on the model's judgement: the model adds context and a summary, but cannot
+# rank a tripwire below this floor or suggest dismissing it. The floor only
+# raises; it never lowers a verdict.
+ORDEN_PRIORIDAD = ["low", "medium", "high", "critical"]
+PISO_TRIPWIRE = {
+    "100212": "high",  # Kerberos ticket requested for honeytoken svc_sql_backup
+    "100230": "high",  # read of decoy account adm_backup_legacy (SACL)
+}
+ACCIONES_QUE_DESCARTAN = {"monitor", "mark_false_positive"}
+
 # Rough Haiku 4.5 pricing (USD per million tokens) for the cost metric only.
 PRECIO_ENTRADA = 1.00 / 1_000_000
 PRECIO_SALIDA = 5.00 / 1_000_000
@@ -328,10 +340,12 @@ def enviar_telegram(mensaje):
 def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
     if estado == "analizado":
         flag = " ⚠️ POSIBLE INYECCIÓN EN EL LOG" if analisis.get("possible_prompt_injection") else ""
+        piso = analisis.get("piso_aplicado")
+        nota_piso = f" [piso tripwire; modelo: {piso['prioridad_modelo']}]" if piso else ""
         mensaje = (
             f"Caso {caso_id}{flag}\n"
             f"Regla: {alerta.get('rule_id')} | MITRE: {analisis.get('mitre_id')}\n"
-            f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']})\n"
+            f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']}){nota_piso}\n"
             f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
             f"Resumen: {analisis['resumen']}"
         )
@@ -353,6 +367,31 @@ def limpiar(alerta):
     """Drop evaluation-only keys (leading underscore, e.g. _expected) so ground
     truth never reaches the model."""
     return {k: v for k, v in alerta.items() if not k.startswith("_")}
+
+
+def aplicar_piso_tripwire(rule_id, analisis):
+    """Enforce the deterministic floor for tripwire rules (see PISO_TRIPWIRE).
+
+    Raises priority to the floor and replaces a dismissive action with
+    escalate_tier2. Never lowers anything. When it changes the verdict, the
+    model's original values are kept under "piso_aplicado" for audit.
+    Returns the (possibly updated) verdict.
+    """
+    piso = PISO_TRIPWIRE.get(str(rule_id))
+    if not piso or not analisis:
+        return analisis
+    original_p, original_a = analisis["prioridad"], analisis["accion_sugerida"]
+    nueva_p = original_p
+    if ORDEN_PRIORIDAD.index(original_p) < ORDEN_PRIORIDAD.index(piso):
+        nueva_p = piso
+    nueva_a = "escalate_tier2" if original_a in ACCIONES_QUE_DESCARTAN else original_a
+    if (nueva_p, nueva_a) != (original_p, original_a):
+        analisis = dict(analisis, prioridad=nueva_p, accion_sugerida=nueva_a)
+        analisis["piso_aplicado"] = {
+            "regla": str(rule_id), "piso": piso,
+            "prioridad_modelo": original_p, "accion_modelo": original_a,
+        }
+    return analisis
 
 
 def calificar(esperado, analisis):
@@ -391,7 +430,12 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
     caso_id = f"{hash_dedup}-{uuid.uuid4().hex[:8]}"
     try:
         analisis, metricas = analizar_con_ia(alerta)
+        analisis = aplicar_piso_tripwire(alerta.get("rule_id"), analisis)
         estado = "analizado"
+        if analisis.get("piso_aplicado"):
+            pa = analisis["piso_aplicado"]
+            print(f"  [PISO] regla tripwire {pa['regla']}: modelo dijo {pa['prioridad_modelo']}/"
+                  f"{pa['accion_modelo']} -> {analisis['prioridad']}/{analisis['accion_sugerida']}")
     except Exception as e:
         analisis, metricas, estado = None, {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}, "sin_analisis"
         print(f"[ERROR] Falló/invalidó el análisis de IA: {e}")

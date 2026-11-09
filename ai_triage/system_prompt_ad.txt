@@ -72,6 +72,12 @@ exactly this schema:
   against the honeytoken service account "svc_sql_backup" is near-zero false
   positive: that account exists only as a tripwire and should never be used
   legitimately, so any ticket request for it is high priority.
+- Decoy account read (rule 100230, event 4662 "Read Property"): the account
+  "adm_backup_legacy" is a decoy that no person or service uses. A SACL on that
+  object is the only thing that makes rule 100230 fire, so every 100230 alert is
+  a read of the decoy, typically account discovery (T1087.002). Note that event
+  4662 names the object by its GUID, not by its name: the absence of the name in
+  the log is expected and is NOT a reason to lower priority. High priority.
 - Brute force (rule 100200): 8+ failed logons (event 4625) from one source IP.
   High priority. In this lab the source is often Kali (192.168.56.103); that is
   the expected attacker host, not a reason to downgrade.

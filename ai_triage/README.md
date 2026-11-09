@@ -41,6 +41,44 @@ Wazuh alert (level >= 10)
 `mark_false_positive`. These are recommendations for a human; the script never
 runs any of them.
 
+## Tripwire priority floor
+
+Some rules can only fire on objects that have **no legitimate use**: the
+honeytoken SPN account (`100212`) and the decoy AD account (`100230`). For
+those, the verdict's priority is not left to the model:
+
+| Rule | Floor | Dismissive action (`monitor`, `mark_false_positive`) |
+|---|---|---|
+| `100212` honeytoken Kerberos ticket | `high` | replaced by `escalate_tier2` |
+| `100230` decoy account read | `high` | replaced by `escalate_tier2` |
+
+The floor only **raises**: a `critical` verdict stays `critical`, and other
+rules are untouched (`100220`, a privileged-group change, can be an approved
+change, so it keeps the model's judgement). When the floor changes a verdict,
+the model's original priority and action are stored under `piso_aplicado` in
+the case record, printed as `[PISO] ...`, and shown in the Telegram message
+(`[piso tripwire; modelo: medium]`).
+
+**Why it exists — observed on 2026-11-07.** Two reads of the same decoy account
+(`100230`) received different priorities: `medium/manual_review` and
+`high/escalate_tier2`. It was not randomness (`temperature: 0`): event 4662
+identifies the object by GUID, not by name, and the system prompt described
+the honeytoken but not the decoy. Two fixes, both in this change:
+
+1. The system prompt now describes the decoy and states that a missing name in
+   4662 is expected and is not a reason to lower priority.
+2. The deterministic floor above, so the outcome no longer depends on the
+   prompt being right. The model adds context and a summary; it does not decide
+   whether a tripwire can be ignored.
+
+Tests: `tests/test_priority_floor.py` (10 tests, any OS), including the exact
+live case and an end-to-end run through `procesar_alerta`.
+
+Benchmark note: the labeled benchmark below contains no `100212`/`100230`
+alerts, so the floor does not change its published score. The prompt change
+does, potentially; the real-mode benchmark has to be re-run before that score
+is quoted again (pending).
+
 ## Running it
 
 **Simulated mode (default, no API credit).** Exercises the full flow — schema
