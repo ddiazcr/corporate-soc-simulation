@@ -87,7 +87,9 @@ before applying any decoy policy:
 - `wazuh_feed.py` carries `objectName` (the accessed object's GUID, `%{…}` in
   4662) into the alert as `object_name`.
 - `es_senuelo_verificado()` compares it with `DECOY_OBJECT_GUID`
-  (case-insensitive, braces ignored). Only a match activates the floor, both
+  (case-insensitive). The whole field must be one accepted format — `%{guid}`,
+  `{guid}` or a bare GUID; a value that merely contains the GUID is rejected.
+  Only a match activates the floor, both
   with a model verdict and in the no-verdict fallback.
 - The pipeline sets `decoy_verified` on the alert *after* any log content, so
   a log cannot claim to be the decoy; the prompt tells the model to rely only
@@ -102,7 +104,7 @@ before applying any decoy policy:
 Pending, separate change: harden the Wazuh rule itself by matching
 `objectName` against the decoy GUID, validated with `wazuh-logtest`.
 
-Tests: `tests/test_priority_floor.py` — 29 tests, any OS, no network. They
+Tests: `tests/test_priority_floor.py` — 31 tests, any OS, no network. They
 cover the live case, the decoy GUID check (same object class, different
 `objectName`: only the decoy activates the policy; no verified GUID → no floor;
 a spoofed `decoy_verified` is overwritten), never lowering, non-tripwire rules, no mutation, schema

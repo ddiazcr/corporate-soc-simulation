@@ -87,16 +87,24 @@ ACCIONES_QUE_DESCARTAN = {"monitor", "mark_false_positive"}
 # objectGUID of adm_backup_legacy, verified on DC01 on 2026-11-08 with
 # (Get-ADUser adm_backup_legacy).ObjectGUID. Set to None to disable the 100230 floor.
 DECOY_OBJECT_GUID = "dd002ba1-3992-4539-bf9b-9ee77df0952d"
-_GUID_RE = re.compile(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+# Whole-field formats accepted for objectName: '%{<guid>}' (as 4662 writes it),
+# '{<guid>}' or a bare '<guid>'. Anything else (extra text around a GUID) is
+# not the decoy.
+_GUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+_OBJECT_NAME_RE = re.compile(rf"(?:%?\{{)?({_GUID})(?:\}})?")
 
 
 def es_senuelo_verificado(alerta):
-    """True only if a 100230 event's objectName is the decoy's objectGUID.
-    objectName in 4662 looks like '%{<guid>}'; only the GUID is compared."""
+    """True only if a 100230 event's objectName IS the decoy's objectGUID.
+    The whole field must be one accepted format ('%{guid}', '{guid}', 'guid');
+    a value that merely contains the GUID among other text does not count."""
     if not DECOY_OBJECT_GUID or not alerta:
         return False
-    m = _GUID_RE.search(str(alerta.get("object_name") or ""))
-    return bool(m) and m.group(0).lower() == DECOY_OBJECT_GUID.lower()
+    valor = str(alerta.get("object_name") or "").strip()
+    m = _OBJECT_NAME_RE.fullmatch(valor)
+    if not m or (valor.startswith(("%{", "{")) != valor.endswith("}")):
+        return False   # extra text, or unbalanced braces
+    return m.group(1).lower() == DECOY_OBJECT_GUID.lower()
 
 
 def tripwire_aplica(rule_id, alerta=None):

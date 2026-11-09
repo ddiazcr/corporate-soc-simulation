@@ -109,6 +109,16 @@ class DecoyVerificationTests(DecoyGuidMixin, unittest.TestCase):
         self.assertTrue(t.es_senuelo_verificado({"object_name": "%{" + DECOY.upper() + "}"}))
         self.assertTrue(t.es_senuelo_verificado({"object_name": DECOY}))
 
+    def test_accepted_whole_field_formats(self):
+        for valor in ("%{" + DECOY + "}", "{" + DECOY + "}", DECOY, "  %{" + DECOY + "}  "):
+            self.assertTrue(t.es_senuelo_verificado({"object_name": valor}), valor)
+
+    def test_guid_embedded_in_other_text_is_not_the_decoy(self):
+        for valor in ("CN=x,%{" + DECOY + "}", "%{" + DECOY + "} extra", "prefix" + DECOY,
+                      "%{" + DECOY + "}}", "{" + DECOY, DECOY + "}",
+                      "%{" + DECOY + "};%{" + OTRA + "}"):
+            self.assertFalse(t.es_senuelo_verificado({"object_name": valor}), valor)
+
     def test_missing_object_name_is_not_the_decoy(self):
         self.assertFalse(t.es_senuelo_verificado({"rule_id": "100230"}))
 
