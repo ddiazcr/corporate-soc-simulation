@@ -50,7 +50,7 @@ those, priority is a policy, not a model opinion:
 | Rule | Floor | Dismissive action (`monitor`, `mark_false_positive`) |
 |---|---|---|
 | `100212` honeytoken Kerberos ticket | `high` | replaced by `escalate_tier2` |
-| `100230` decoy account read | `high` | replaced by `escalate_tier2` |
+| `100230` decoy account read — **only when `objectName` is the decoy's `objectGUID`** | `high` | replaced by `escalate_tier2` |
 
 - **Only raises.** A `critical` verdict stays `critical`. Other rules are
   untouched: `100220` (privileged-group change) can be an approved change; a
@@ -75,27 +75,46 @@ described the honeytoken but not the decoy; it now does, and frames account
 discovery as a hypothesis to corroborate (a single read can also come from a
 broad directory query), noting that 4662 names the object by GUID.
 
-**How rule 100230 identifies the decoy — and its limit.** The rule matches
-event 4662 with `accessMask 0x10` (Read Property) on an object of class `user`
-(`objectType bf967aba-…`, the schema GUID of the *user class*, the same for
-every account), excluding machine accounts. It does **not** match the decoy's
-own object GUID. Its selectivity comes from the SACL: `adm_backup_legacy` is the
-only account with a read-auditing SACL, so it is the only one that produces
-these events. If another user object ever gets a read SACL, this rule would
-fire for it too. Pending hardening: also match `objectName` against the
-decoy's `objectGUID` so the rule verifies the decoy itself.
+**How rule 100230 identifies the decoy — and how the floor checks it.** The
+rule matches event 4662 with `accessMask 0x10` (Read Property) on an object of
+class `user` (`objectType bf967aba-…`, the schema GUID of the *user class*,
+the same for every account), excluding machine accounts. It does **not** match
+the decoy's own object GUID: its selectivity comes from the decoy being the
+only account with a read-auditing SACL. If another user object ever gets a
+read SACL, the rule fires for it too. So the pipeline verifies the object
+before applying any decoy policy:
 
-Tests: `tests/test_priority_floor.py` — 16 tests, any OS, no network. They
-cover the live case, never lowering, non-tripwire rules, no mutation, schema
+- `wazuh_feed.py` carries `objectName` (the accessed object's GUID, `%{…}` in
+  4662) into the alert as `object_name`.
+- `es_senuelo_verificado()` compares it with `DECOY_OBJECT_GUID`
+  (case-insensitive, braces ignored). Only a match activates the floor, both
+  with a model verdict and in the no-verdict fallback.
+- The pipeline sets `decoy_verified` on the alert *after* any log content, so
+  a log cannot claim to be the decoy; the prompt tells the model to rely only
+  on that field and to assess any other 100230 on its own merits.
+- **Fail-safe:** while `DECOY_OBJECT_GUID` is `None` (not yet verified against
+  the DC), 100230 never receives the floor.
+
+Pending, separate change: harden the Wazuh rule itself by matching
+`objectName` against the decoy GUID, validated with `wazuh-logtest`.
+
+Tests: `tests/test_priority_floor.py` — 26 tests, any OS, no network. They
+cover the live case, the decoy GUID check (same object class, different
+`objectName`: only the decoy activates the policy; no verified GUID → no floor;
+a spoofed `decoy_verified` is overwritten), never lowering, non-tripwire rules, no mutation, schema
 validity, idempotence, an end-to-end run through `procesar_alerta`, **the model
 failing and the verdict being invalid** (priority checked in both the stored
 case and the notification), and scoring the model's verdict separately from
 the final decision.
 
-**Benchmark.** `--eval` now reports `precision_modelo_solo` (the model's own
-verdicts) next to `precision_global` (the final decision after policy) and
-`veredictos_ajustados_por_politica`, so a demo shows what each part
-contributed. The labeled set has no `100212`/`100230` alerts, so the floor
+**Benchmark.** `--eval` scores the **final decision from the persisted case
+columns** (`prioridad`, `accion_sugerida`), so a fallback decision taken
+without a model verdict is scored as what the SOC actually did. The model is
+scored separately: `precision_modelo_solo` uses its own verdict (recovered from
+`piso_aplicado`), `modelo_sin_veredicto` counts failures, and injection
+detection is reported as not evaluable (`inyeccion_no_evaluable`) instead of
+as a miss when there is no verdict. `veredictos_ajustados_por_politica` counts
+decisions the floor changed or took alone. The labeled set has no `100212`/`100230` alerts, so the floor
 does not change its published score; the prompt change might, so the
 real-mode benchmark must be re-run before that score is quoted again
 (pending).

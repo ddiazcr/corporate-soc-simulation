@@ -74,6 +74,7 @@ def convertir(wazuh):
         "target_user": target,
         "subject_user": ev.get("subjectUserName"),
         "service_name": ev.get("serviceName"),
+        "object_name": ev.get("objectName"),  # 4662: GUID of the accessed AD object
         "raw_log": raw,
         "_wazuh_id": wazuh.get("id"),
     }
