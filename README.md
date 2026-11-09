@@ -63,9 +63,9 @@ n = 1: observations of one run, not a benchmark. *Verified* means [`measure_even
 | Scenario | Expected | Observed | Runs | Evidence |
 |---|---|---|---|---|
 | Kerberoasting on the honeytoken, from DC01 (`100212`) | Alert; `high`/`critical`; escalate | Alert in 1.90 s; `critical` / `escalate_tier2` | 1 live | [live run](docs/evidence/live-run-2026-11-08/) |
-| Read of the decoy account (`100230`) | Alert; `high`; escalate | `medium`/`manual_review` and `high`/`escalate_tier2` on two reads of the same decoy, which motivated the tripwire priority floor | 2 replayed (2026-11-07) | Reported · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
+| Read of the decoy account (`100230`) | Alert; `high`; escalate | `medium` on one read, `high` on the other: inconsistent → tripwire floor | 2 replayed (2026-11-07) | Reported · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
 | Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` | 1 replayed (2026-11-07) | Reported |
-| Benign look-alike (a legitimate service ticket, a routine admin read) | No tripwire alert, or `low`/`medium` without escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
+| Benign look-alike (legitimate service ticket, routine admin read) | No tripwire alert; `low`/`medium`, no escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
 | Kerberoasting from the network (Kali) | Alert `100212` | No alert: known detection gap | ⏳ Open | [MITRE mapping](docs/mitre_attack_mapping.md) |
 | Model unavailable during a tripwire alert | Still `high` + priority human review | Unit tests only | ⏳ Not run live | [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
 
