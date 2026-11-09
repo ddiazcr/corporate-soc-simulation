@@ -27,11 +27,16 @@ manager's alert time are ~33 s apart, while the recording shows 1.9 s).
   the notification.
 - T2 comes before T3 because the pipeline sends the notification and then
   prints to the console.
-- T2 is the moment the Telegram **desktop client** shows the message; the
-  phone was not recorded.
+- **End point: Telegram desktop client.** T2 is the moment the desktop
+  client lists the message; the phone was not recorded.
+- **These figures supersede** the ones shown in the LinkedIn edit of this run
+  (1.7 s and ~8.5 s). Those came from 0.1 s sampling, started at the console
+  scroll instead of the Enter (+0.2 s), and ended near the desktop pop-up
+  (~8.9 s) instead of the message arriving.
 
-**Reproduce:** `python measure_events.py recording-unedited-38-52s.mp4`
-(needs ffmpeg and Pillow). It decodes every frame and reports the first frame
+**Reproduce from this folder only:** `python measure_events.py`
+(needs ffmpeg and Pillow; reads `recording-unedited-38-57s.mp4`). Clip time 0
+= source 38.0 s. It decodes every frame and reports the first frame
 where each screen region changes; each event was also checked by eye.
 
 ```
@@ -50,14 +55,22 @@ T3 feed prints the model verdict and metrics          clip 11.400 s   + 8.73 s f
 | Model verdict | [t3](t3-verdict-in-feed.jpg) (action, latency, tokens, cost) · [Telegram message](telegram-notification.jpg) (priority `critical`, confidence `high`, MITRE T1558.003, summary) | ✅ As displayed · raw JSON from the case store pending |
 | Decision after policy | The tripwire priority floor (PR #4) was **not active** in this run. The model's `critical` is already above that floor, so it would not have changed the outcome. | n/a in this run |
 | Notification | [Telegram message](telegram-notification.jpg) · [t2](t2-telegram-received.jpg) | ✅ |
-| Human decision | Not captured: the recording ends at the approval prompt | ⏳ Pending |
+| Human decision | Not captured: the recording ends at the approval prompt | ⏳ Pending evidence |
+
+## What can be re-verified from this folder
+
+Everything in the timeline: the segment covers T0–T3 and every frame shown
+here, and the script recomputes the four marks from it (checked on a fresh
+clone of the branch). The full original recording (56.9 s) is not published:
+outside this segment it only shows setup (clipboard and search pop-ups) and,
+unblurred, the author's Telegram user ID.
 
 ## Files
 
 | File | What it is |
 |---|---|
-| `recording-unedited-38-52s.mp4` | 14 s of the original screen recording (source 38–52 s), not cut or sped up |
-| `t0…t3-*.jpg`, `telegram-notification.jpg` | Frames from that recording at each event |
+| `recording-unedited-38-57s.mp4` | Segment of the original screen recording, source 38.0–56.9 s (18.9 s): not cut, sped up or re-timed; only the blur below was applied |
+| `t0…t3-*.jpg`, `telegram-notification.jpg` | Frames taken from that segment (clip times 2.70, 4.60, 10.97, 11.43 and 17.50 s) |
 | `measure_events.py` | Re-measures T0–T3 from the clip |
 
 **Publication review.** Lab-only data (fictional domain `lab.local`, host-only

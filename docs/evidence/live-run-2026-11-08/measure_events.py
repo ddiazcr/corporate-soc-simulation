@@ -2,7 +2,7 @@
 Re-measure the live-run timeline from the unedited recording segment.
 
 Usage (needs ffmpeg on PATH and Pillow):
-    python measure_events.py recording-unedited-38-52s.mp4
+    python measure_events.py recording-unedited-38-57s.mp4
 
 Method: decode every frame (30 fps, so +/- 0.033 s), compare each frame with
 the previous one inside a fixed screen region, and report the first frame where
@@ -71,4 +71,4 @@ def main(path):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "recording-unedited-38-52s.mp4")
+    main(sys.argv[1] if len(sys.argv) > 1 else "recording-unedited-38-57s.mp4")

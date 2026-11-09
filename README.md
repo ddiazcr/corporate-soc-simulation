@@ -39,9 +39,11 @@ Jump to: [lab results](#-lab-results) · [MITRE mapping](docs/mitre_attack_mappi
 |---|---|---|
 | Enter on DC01 → alert `100212` in the triage feed | **1.90 s** | [✅ verified](docs/evidence/live-run-2026-11-08/) |
 | Model analysis (API call → validated verdict) | **5.81 s** | [🟡 reported by the pipeline](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg) |
-| Enter on DC01 → Telegram receives the verdict | **8.27 s** | [✅ verified](docs/evidence/live-run-2026-11-08/) |
+| Enter on DC01 → Telegram **desktop client** receives the verdict | **8.27 s** | [✅ verified](docs/evidence/live-run-2026-11-08/) |
 
-n = 1: observations of one run, not a benchmark. *Verified* means [`measure_events.py`](docs/evidence/live-run-2026-11-08/measure_events.py) recomputes the figure from the published, unedited recording; *reported* means the pipeline printed it. Telegram time is the desktop client.
+n = 1: observations of one run, not a benchmark. *Verified* means [`measure_events.py`](docs/evidence/live-run-2026-11-08/measure_events.py) recomputes the figure from the [published unedited segment](docs/evidence/live-run-2026-11-08/recording-unedited-38-57s.mp4) of the recording; *reported* means the pipeline printed it. The end point is the Telegram desktop client; the phone was not recorded.
+
+**Before this run the live feed was silent** although Wazuh raised the alerts: [stage-by-stage diagnosis](https://github.com/ddiazcr/corporate-soc-simulation/blob/a9e1fe76d5a32403dddfbb1f1bd3894311f0c73f/ai_triage/README.md#why-the-feed-does-not-use-tail--f-diagnosed-2026-11-08) (root cause: the manager's `tail -F`). Failure handling was tested on Windows with real OpenSSH: [W1–W4](https://github.com/ddiazcr/corporate-soc-simulation/blob/a9e1fe76d5a32403dddfbb1f1bd3894311f0c73f/ai_triage/README.md#b-windows-analyst-host--real-openssh-real-manager-manual) — interrupting the session ends the feed with a visible error (exit 2), and Ctrl+C exits cleanly (exit 0).
 
 <details>
 <summary><b>Evidence chain for this run</b></summary>
@@ -53,7 +55,7 @@ n = 1: observations of one run, not a benchmark. *Verified* means [`measure_even
 | Model verdict | [feed](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg) · [Telegram: `critical`, T1558.003, summary](docs/evidence/live-run-2026-11-08/telegram-notification.jpg) | ✅ As displayed |
 | Decision after policy | Tripwire floor not active in this run; the model's `critical` is already above it | n/a |
 | Notification | [Telegram message](docs/evidence/live-run-2026-11-08/telegram-notification.jpg) | ✅ |
-| Human decision | Not captured (the recording ends at the approval prompt) | ⏳ Pending |
+| Human decision | Not captured: the recording ends at the approval prompt | ⏳ Pending evidence |
 
 </details>
 
@@ -65,7 +67,8 @@ n = 1: observations of one run, not a benchmark. *Verified* means [`measure_even
 | Kerberoasting on the honeytoken, from DC01 (`100212`) | Alert; `high`/`critical`; escalate | Alert in 1.90 s; `critical` / `escalate_tier2` | 1 live | [live run](docs/evidence/live-run-2026-11-08/) |
 | Read of the decoy account (`100230`) | Alert; `high`; escalate | `medium` on one read, `high` on the other: inconsistent → tripwire floor | 2 replayed (2026-11-07) | Reported · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
 | Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` | 1 replayed (2026-11-07) | Reported |
-| Benign look-alike (legitimate service ticket, routine admin read) | No tripwire alert; `low`/`medium`, no escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
+| **Benign control — detection:** a legitimate Kerberos ticket for a real service (not the honeytoken) | No `100212` alert | — | ⏳ Not run live | — |
+| **Benign control — triage:** an alert that fires on legitimate activity (look-alike) | Alert; `low`/`medium`, no escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
 | Kerberoasting from the network (Kali) | Alert `100212` | No alert: known detection gap | ⏳ Open | [MITRE mapping](docs/mitre_attack_mapping.md) |
 | Model unavailable during a tripwire alert | Still `high` + priority human review | Unit tests only | ⏳ Not run live | [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
 
