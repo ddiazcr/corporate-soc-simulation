@@ -35,13 +35,13 @@ Jump to: [lab results](#-lab-results) · [MITRE mapping](docs/mitre_attack_mappi
 
 ![Timeline of the live run: 0 s Enter on DC01, 1.90 s alert in the triage feed, 8.27 s Telegram receives the verdict](docs/img/live-run-timeline.svg)
 
-| Measurement | From → to | Value | Status |
-|---|---|---|---|
-| SIEM to analyst | Enter on DC01 → alert `100212` printed in the triage feed | **1.90 s** | ✅ Verified ([clip + script](docs/evidence/live-run-2026-11-08/)) |
-| Model analysis | API request → validated verdict | **5.81 s** | 🟡 Reported by the pipeline ([frame](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg)) |
-| Action to notification | Enter on DC01 → Telegram desktop client receives the message | **8.27 s** | ✅ Verified ([clip + script](docs/evidence/live-run-2026-11-08/)) |
+| Stage (start → end) | Value | Status |
+|---|---|---|
+| Enter on DC01 → alert `100212` in the triage feed | **1.90 s** | [✅ verified](docs/evidence/live-run-2026-11-08/) |
+| Model analysis (API call → validated verdict) | **5.81 s** | [🟡 reported by the pipeline](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg) |
+| Enter on DC01 → Telegram receives the verdict | **8.27 s** | [✅ verified](docs/evidence/live-run-2026-11-08/) |
 
-n = 1. These are observations of one run, not a benchmark. Each figure links to the frame or clip behind it, and [`measure_events.py`](docs/evidence/live-run-2026-11-08/measure_events.py) recomputes them from the published recording.
+n = 1: observations of one run, not a benchmark. *Verified* means [`measure_events.py`](docs/evidence/live-run-2026-11-08/measure_events.py) recomputes the figure from the published, unedited recording; *reported* means the pipeline printed it. Telegram time is the desktop client.
 
 <details>
 <summary><b>Evidence chain for this run</b></summary>
