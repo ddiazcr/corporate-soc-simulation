@@ -25,7 +25,53 @@ A full SOC cycle on an enterprise identity environment — **build → monitor �
 - **Measured hardening** — a 14-check audit scored the domain, hardening was applied, and the re-measure went **50% → 93%** (7/14 → 13/14). Re-running the attack proved the point: the account now **locks** and the detection **still fires** — hardened without going blind.
 - **Incident-driven** — real failures (a full-disk SIEM, a clock-skew blackout, a domain controller locked out and recovered via WinRE) are written up as blameless postmortems, each turned into a detection or a hardening item.
 
-Jump to: [MITRE mapping](docs/mitre_attack_mapping.md) · [AI triage](ai_triage/README.md) · [incident reports](docs/incident-reports.md) · [hardening results](#️-phase-5--hardening)
+Jump to: [lab results](#-lab-results) · [MITRE mapping](docs/mitre_attack_mapping.md) · [AI triage](ai_triage/README.md) · [incident reports](docs/incident-reports.md) · [hardening results](#️-phase-5--hardening)
+
+---
+
+## 📊 Lab results
+
+**Live run, 2026-11-08 — one execution.** A Kerberoasting attempt against the honeytoken on DC01, followed through the whole chain on a single clock (the screen recording):
+
+![Timeline of the live run: 0 s Enter on DC01, 1.90 s alert in the triage feed, 8.27 s Telegram receives the verdict](docs/img/live-run-timeline.svg)
+
+| Measurement | From → to | Value | Status |
+|---|---|---|---|
+| SIEM to analyst | Enter on DC01 → alert `100212` printed in the triage feed | **1.90 s** | ✅ Verified ([clip + script](docs/evidence/live-run-2026-11-08/)) |
+| Model analysis | API request → validated verdict | **5.81 s** | 🟡 Reported by the pipeline ([frame](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg)) |
+| Action to notification | Enter on DC01 → Telegram desktop client receives the message | **8.27 s** | ✅ Verified ([clip + script](docs/evidence/live-run-2026-11-08/)) |
+
+n = 1. These are observations of one run, not a benchmark. Each figure links to the frame or clip behind it, and [`measure_events.py`](docs/evidence/live-run-2026-11-08/measure_events.py) recomputes them from the published recording.
+
+<details>
+<summary><b>Evidence chain for this run</b></summary>
+
+| Stage | Evidence | Status |
+|---|---|---|
+| Original Windows event 4769 (anonymized) | — | ⏳ Pending export |
+| Wazuh alert `100212` | [alert line in the feed](docs/evidence/live-run-2026-11-08/t1-alert-in-feed.jpg) | 🟡 Partial (full JSON pending) |
+| Model verdict | [feed](docs/evidence/live-run-2026-11-08/t3-verdict-in-feed.jpg) · [Telegram: `critical`, T1558.003, summary](docs/evidence/live-run-2026-11-08/telegram-notification.jpg) | ✅ As displayed |
+| Decision after policy | Tripwire floor not active in this run; the model's `critical` is already above it | n/a |
+| Notification | [Telegram message](docs/evidence/live-run-2026-11-08/telegram-notification.jpg) | ✅ |
+| Human decision | Not captured (the recording ends at the approval prompt) | ⏳ Pending |
+
+</details>
+
+<details>
+<summary><b>Scenario baseline — what to compare future runs against</b></summary>
+
+| Scenario | Expected | Observed | Runs | Evidence |
+|---|---|---|---|---|
+| Kerberoasting on the honeytoken, from DC01 (`100212`) | Alert; `high`/`critical`; escalate | Alert in 1.90 s; `critical` / `escalate_tier2` | 1 live | [live run](docs/evidence/live-run-2026-11-08/) |
+| Read of the decoy account (`100230`) | Alert; `high`; escalate | `medium`/`manual_review` and `high`/`escalate_tier2` on two reads of the same decoy, which motivated the tripwire priority floor | 2 replayed (2026-11-07) | Reported · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
+| Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` | 1 replayed (2026-11-07) | Reported |
+| Benign look-alike (a legitimate service ticket, a routine admin read) | No tripwire alert, or `low`/`medium` without escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
+| Kerberoasting from the network (Kali) | Alert `100212` | No alert: known detection gap | ⏳ Open | [MITRE mapping](docs/mitre_attack_mapping.md) |
+| Model unavailable during a tripwire alert | Still `high` + priority human review | Unit tests only | ⏳ Not run live | [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
+
+Once a scenario has three or more comparable runs, this table will report the number of runs with the median and range per stage, and comparative charts will be added then.
+
+</details>
 
 ---
 
