@@ -307,6 +307,26 @@ closes, even if no alert arrives. Every 0.5 s while idle it checks the path:
   `ls -li alerts.json` before and after. It travels base64-encoded so the command has no quotes to break
 on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 
+### Resuming after a stop
+
+On 2026-11-11 three honeytoken alerts were lost because they fired while the
+feed was stopped: the remote reader started at the end of `alerts.json`. Now
+every alert handed to triage is recorded in `casos_ad.db` (`feed_procesadas`,
+written after triage returns, so a crash replays it instead of losing it). On
+start, the remote reader replays the current `alerts.json` from the last
+recorded timestamp and then follows new lines; alerts already recorded are
+skipped, so nothing is triaged twice.
+
+| Situation | Behaviour |
+|---|---|
+| First start (no checkpoint) or `--from-end` | New alerts only, as before |
+| Stop and restart the same day | Missed alerts are triaged first, then live |
+| Checkpoint older than 24 h | Not resumed; the feed says which interval to review in the dashboard |
+| Stop spans 00:00 UTC (daily rotation) | Resumes the current file and warns that earlier alerts are in the rotated file |
+
+The resume timestamp goes into the remote command, so only an exact Wazuh
+timestamp (`YYYY-MM-DDTHH:MM:SS[.fff]+0000`) is accepted.
+
 ### The analyst's keyboard belongs to the approval prompt
 
 `ssh` is started with `stdin` set to `DEVNULL`. In the 2026-11-11 live run it
