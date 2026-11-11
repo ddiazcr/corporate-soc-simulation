@@ -235,6 +235,26 @@ class AuditWriteFailureTests(unittest.TestCase):
         self.assertEqual(cm.exception.code, t.EXIT_AUDITORIA)
         self.assertFalse(existe)
 
+    def test_aborted_run_does_not_leave_a_previous_results_file(self):
+        """A results file from an earlier run must not survive next to the
+        audit of a run that stopped: it would read as this run's score."""
+        alerta = dict(ALERTA, _expected={"label": "attack", "injection": False})
+        with ModeloStub(respuesta_api(json.dumps(VEREDICTO)), eval_mode=True) as s:
+            with open("bench.json", "w", encoding="utf-8") as f:
+                json.dump([alerta], f)
+            with open(t.EVAL_RESULTS, "w", encoding="utf-8") as f:
+                json.dump({"resumen": {"precision_global": "10/10"}, "detalle": []}, f)  # old run
+            orig_argv = sys.argv
+            sys.argv = ["soc_ai_triage.py", "bench.json", "--eval"]
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    t.main()
+            finally:
+                sys.argv = orig_argv
+            queda = os.path.exists(os.path.join(s.tmp.name, t.EVAL_RESULTS))
+        self.assertEqual(cm.exception.code, t.EXIT_AUDITORIA)
+        self.assertFalse(queda)
+
 
 if __name__ == "__main__":
     unittest.main()

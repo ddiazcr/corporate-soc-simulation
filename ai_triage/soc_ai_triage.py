@@ -58,6 +58,7 @@ EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scor
 MAX_TOKENS = 1024
 EVAL_RAW = "eval_raw_responses.jsonl"  # --eval: every raw model response, for audit
 EXIT_AUDITORIA = 4  # --eval stopped: a raw response could not be recorded
+EVAL_RESULTS = "eval_results.json"  # --eval: summary + per-alert scores of THIS run only
 
 # suggested_action must be exactly one of these. Anything else is rejected by
 # schema validation and the alert falls back to safe manual handling.
@@ -644,8 +645,12 @@ def main():
           f"{' (dedup off)' if forzar_nuevo else ''}{' | EVALUACIÓN' if EVAL else ''}\n")
     total_costo, total_lat, analizadas = 0.0, 0.0, 0
     resultados = []
-    if EVAL and os.path.exists(EVAL_RAW):
-        os.remove(EVAL_RAW)  # one benchmark run per file
+    if EVAL:
+        # One run per output: remove both files from any previous run first,
+        # so an aborted run can never leave an older score next to its audit.
+        for previo in (EVAL_RAW, EVAL_RESULTS):
+            if os.path.exists(previo):
+                os.remove(previo)
     for alerta in alertas:
         try:
             res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
@@ -654,7 +659,8 @@ def main():
             print(f"\n[ERROR] {e}\n  Corrida INCOMPLETA: {len(resultados)} de {len(alertas)} alertas "
                   f"evaluadas; la llamada de la alerta {alerta.get('rule_id')} se hizo "
                   f"(costo ${e.metricas.get('costo_usd')}, stop_reason={e.metricas.get('stop_reason')}). "
-                  f"Costo acumulado ${round(costo, 6)}. No se escribe eval_results.json.")
+                  f"Costo acumulado ${round(costo, 6)}. No hay {EVAL_RESULTS} de esta corrida "
+                  f"(el de corridas anteriores se borró al iniciar).")
             sys.exit(EXIT_AUDITORIA)
         met = res[1] if isinstance(res, tuple) else None
         if met and met.get("latencia_s"):  # every model call, accepted or rejected
@@ -710,9 +716,9 @@ def main():
                   f"stop={r['stop_reason']} out={r['tokens_out']} extra={r['texto_extra']}")
         for k, v in resumen.items():
             print(f"  {k}: {v}")
-        with open("eval_results.json", "w", encoding="utf-8") as f:
+        with open(EVAL_RESULTS, "w", encoding="utf-8") as f:
             json.dump({"resumen": resumen, "detalle": resultados}, f, ensure_ascii=False, indent=2)
-        print("\n  Detalle guardado en eval_results.json")
+        print(f"\n  Detalle guardado en {EVAL_RESULTS}")
 
     conn.close()
     print(f"\nListo. Casos en {DB_PATH} (tabla casos); decisiones humanas en la tabla decisiones.")
