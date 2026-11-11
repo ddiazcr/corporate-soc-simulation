@@ -32,8 +32,14 @@ process it, and reads the result from alerts.json.
 4. The new local_rules.xml is installed (backup kept), checked with
    wazuh-analysisd -t, and the manager restarted. The samples are injected
    again ("after").
-5. Expected after: the three honeytoken samples end in 100212, aes-legit never
-   reaches 100210/100211/100212. Otherwise the previous rules are restored.
+5. Expected after: the three honeytoken samples end in 100212, and aes-legit
+   produces an alert (positive evidence that the engine received and decoded
+   it: decoder windows_eventchannel, eventID 4769) whose rule is not
+   100210/100211/100212. A missing alert is a failure, not a pass.
+   Otherwise - or on ANY error or interruption after the XML was replaced -
+   the previous rules are restored, and the manager is checked to be working
+   again (service active and an injected canary event alerted) before the
+   script says so.
 
 Injected events are real alerts on agent 000 (the manager), with
 eventRecordID 9xxxxxxxxx. Stop the AI feed while this runs.
@@ -142,10 +148,13 @@ def correr(etiqueta, inj, honey, aes):
     for nombre in casos:
         a = vistos.get(nombre)
         r = {"marca": marcas[nombre], "regla": a and a["rule"]["id"], "nivel": a and a["rule"]["level"],
+             "decoder": a and a.get("decoder", {}).get("name"),
+             "eventID": a and a["data"]["win"]["system"].get("eventID"),
              "ipAddress": a and a["data"]["win"]["eventdata"].get("ipAddress")}
         res[nombre] = r
         print(f"  [{etiqueta}] {nombre:20s} -> " +
-              (f"regla {r['regla']} nivel {r['nivel']} ({r['ipAddress']})" if a else "sin alerta (regla nivel 0 o descartado)"))
+              (f"regla {r['regla']} nivel {r['nivel']} ({r['ipAddress']}, decoder {r['decoder']})" if a
+               else "sin alerta (regla nivel 0, descartado o no llegó)"))
     return res
 
 
@@ -156,11 +165,34 @@ def fidelidad(inj, honey):
     a = resultado({"x": m}, desde).get("x")
     if not a:
         return False, "el evento reconstruido no produjo alerta"
+    if a.get("decoder", {}).get("name") != "windows_eventchannel":
+        return False, f"decodificado como {a.get('decoder', {}).get('name')}, no windows_eventchannel"
     w = a["data"]["win"]
     dif = [k for k in honey["eventdata"] if honey["eventdata"][k] != w["eventdata"].get(k)]
     dif += [k for k in ("eventID", "providerName", "channel", "keywords", "severityValue")
             if honey["system"].get(k) != w["system"].get(k)]
     return not dif, (f"regla {a['rule']['id']}; campos distintos: {dif}" if dif else f"regla {a['rule']['id']}; campos idénticos")
+
+
+def procesado(r):
+    """Positive evidence the engine took the sample: an alert, decoded as eventchannel."""
+    return bool(r and r.get("regla") and r.get("decoder") == "windows_eventchannel" and r.get("eventID") == "4769")
+
+
+def cumple(res):
+    return (all(procesado(res[n]) and res[n]["regla"] == "100212" for n in HONEY)
+            and procesado(res["aes-legit"])
+            and res["aes-legit"]["regla"] not in ("100210", "100211", "100212"))
+
+
+def operativo(inj, aes):
+    """Manager working: service active and an injected AES event alerts."""
+    if subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"]).returncode != 0:
+        return False
+    m = inj.marca()
+    desde = os.path.getsize(ALERTS)
+    inj.enviar(a_xml(aes, m))
+    return "x" in resultado({"x": m}, desde, espera=30)
 
 
 def reiniciar():
@@ -190,28 +222,42 @@ def main():
     antes = correr("antes", inj, honey, aes)
     respaldo = f"{RULES}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(RULES, respaldo)
-    shutil.copyfile(sys.argv[1], RULES)
-    shutil.chown(RULES, "wazuh", "wazuh")
-    os.chmod(RULES, 0o660)
-    print(f"== Reglas nuevas instaladas (respaldo {respaldo}); reiniciando el manager...")
-    despues, instalada = None, False
-    if reiniciar():
+    despues, instalada, error, recuperado = None, False, None, None
+    try:
+        shutil.copyfile(sys.argv[1], RULES)
+        shutil.chown(RULES, "wazuh", "wazuh")
+        os.chmod(RULES, 0o660)
+        print(f"== Reglas nuevas instaladas (respaldo {respaldo}); reiniciando el manager...")
+        if not reiniciar():
+            raise RuntimeError("el manager no reinició con las reglas nuevas")
         print("== Después")
         despues = correr("después", inj, honey, aes)
-        instalada = (all(despues[n]["regla"] == "100212" for n in HONEY)
-                     and despues["aes-legit"]["regla"] not in ("100210", "100211", "100212"))
-    if not instalada:
-        print("!! No se cumplió lo esperado: restaurando las reglas anteriores.")
-        shutil.copyfile(respaldo, RULES)
-        reiniciar()
+        instalada = cumple(despues)
+        if not instalada:
+            print("!! No se cumplió lo esperado (o faltó evidencia de que el motor procesó una muestra).")
+    except BaseException as e:            # includes Ctrl+C: never leave the new rules half-tested
+        error = repr(e)
+        print(f"!! Error o interrupción: {error}")
+    finally:
+        if not instalada:
+            print("== Restaurando las reglas anteriores...")
+            shutil.copyfile(respaldo, RULES)
+            shutil.chown(RULES, "wazuh", "wazuh")
+            os.chmod(RULES, 0o660)
+            recuperado = reiniciar() and operativo(inj, aes)
+            print("   reglas anteriores restauradas y manager operativo (evento de control alertado)"
+                  if recuperado else
+                  f"   !! reglas restauradas desde {respaldo}, pero el manager NO quedó operativo: "
+                  "revisar 'systemctl status wazuh-manager' y /var/ossec/logs/ossec.log")
     out = {"momento_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "fidelidad": nota,
-           "instalada": instalada, "respaldo": respaldo, "antes": antes, "despues": despues,
+           "instalada": instalada, "error": error, "manager_recuperado": recuperado,
+           "respaldo": respaldo, "antes": antes, "despues": despues,
            "muestra_honeytoken": a_xml(honey, 0), "muestra_aes": a_xml(aes, 0)}
     ruta = os.path.join(AQUI, "engine_test_results.json")
     with open(ruta, "w") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)
     os.chmod(ruta, 0o644)
-    print(f"\n{'OK: reglas nuevas instaladas y validadas' if instalada else 'FALLÓ: reglas anteriores restauradas'}"
+    print(f"\n{'OK: reglas nuevas instaladas y validadas' if instalada else 'FALLÓ: ver arriba el estado de la restauración'}"
           f" | {ruta}")
     return 0 if instalada else 1
 

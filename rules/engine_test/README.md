@@ -22,5 +22,8 @@ scp wazuhadmin@192.168.56.102:/tmp/nimbrek/engine_test_results.json .
 ```
 
 Expected after the new rules: `honeytoken-loopback`, `honeytoken-dc-fqdn` and
-`honeytoken-network` -> 100212; `aes-legit` -> not 100210/100211/100212.
+`honeytoken-network` -> 100212; `aes-legit` -> an alert decoded as
+`windows_eventchannel` whose rule is not 100210/100211/100212 (no alert = failure).
+On any failure, error or Ctrl+C after the XML is replaced, the previous rules
+are restored and the manager is checked to work again (canary event alerted).
 Live ingestion from Kali is a separate check.
