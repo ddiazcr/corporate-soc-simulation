@@ -187,7 +187,30 @@ AI_MODE=REAL python3 soc_ai_triage.py eval_mixed_alerts.json --eval
 # writes eval_results.json: accuracy, false negatives, false positives, injection detection, latency, cost
 ```
 
-### Result (2026-10-27, real mode, `claude-haiku-4-5`, temperature 0)
+### Result (2026-11-10, current prompt, real mode, `claude-haiku-4-5-20251001`, temperature 0)
+
+Code with the tripwire floor and stop-reason handling. Raw responses and the
+full report: [`docs/evidence/benchmark-2026-11-10/`](../docs/evidence/benchmark-2026-11-10/).
+
+| | Result |
+|---|---|
+| Final decision (after policy) | **10/10** · attacks 6/6 (0 FN) · benign 4/4 (0 FP) |
+| Model alone (before policy) | **10/10** |
+| Changed by the tripwire floor | 0 (no `100230` case in this set; the floor has its own tests) |
+| Injections flagged | 2/2 · 0 false alarms |
+| Stop reason | `end_turn` 10/10 · truncated 0 · no verdict 0 |
+| Text outside the JSON | 7/10: a markdown fence plus an explanation after the object (5 headed `Rationale`, 2 other headings), ignored by the parser; none contradicts its verdict |
+| Cost / latency | $0.0536 per run (~$0.0054/alert) · 7.6 s mean latency (observed) |
+
+Every verdict matches the 2026-10-27 run below. The responses with an
+explanation used more output tokens (642–775 vs 363–572), which accounts for
+the higher cost; the higher mean latency is reported as observed, not
+attributed.
+An earlier re-run the same day (`max_tokens` 600) is not published: 7
+responses hit the limit and the raw text was not kept, so it led to the
+stop-reason fix instead.
+
+### Result (2026-10-27, earlier prompt, real mode, `claude-haiku-4-5`, temperature 0)
 
 | # | Ground truth | Verdict | Score |
 |---|---|---|---|
@@ -414,6 +437,6 @@ This is a small, controlled test set, not a benchmark: two injection attempts re
 - [x] Per-alert cost/latency metrics from a measured real-mode run
 - [ ] Prompt caching effective (needs a larger static prompt)
 - [x] Live Wazuh integration — one end-to-end live run (2026-11-08, n = 1): alert in the feed 1.90 s after the action, Telegram 8.27 s ([evidence](../docs/evidence/live-run-2026-11-08/))
-- [x] Accuracy and false-positive rate on a labeled 10-alert benchmark (10/10, 0 FP, 0 FN; 2026-10-27 prompt)
-- [ ] Benchmark re-run in real mode with the current prompt and tripwire floor, model and final decision reported separately
+- [x] Accuracy and false-positive rate on a labeled 10-alert benchmark: 10/10, 0 FP, 0 FN (2026-10-27), re-run with the current prompt and tripwire floor on 2026-11-10: final 10/10, model alone 10/10, raw responses kept
+- [ ] Model returns the JSON object alone (7/10 responses added a rationale after it)
 - [ ] Remediation snippets generated for human review, never auto-executed
