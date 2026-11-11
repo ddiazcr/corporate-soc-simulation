@@ -410,6 +410,7 @@ This is a small, controlled test set, not a benchmark: two injection attempts re
 - [x] Prompt-injection defenses + test cases (2/2 flagged in real mode)
 - [x] Per-alert cost/latency metrics from a measured real-mode run
 - [ ] Prompt caching effective (needs a larger static prompt)
-- [ ] Live Wazuh integration — `wazuh_feed.py` written, pending a live run
-- [x] Accuracy and false-positive rate on a labeled 10-alert benchmark (10/10, 0 FP, 0 FN)
+- [x] Live Wazuh integration — one end-to-end live run (2026-11-08, n = 1): alert in the feed 1.90 s after the action, Telegram 8.27 s ([evidence](../docs/evidence/live-run-2026-11-08/))
+- [x] Accuracy and false-positive rate on a labeled 10-alert benchmark (10/10, 0 FP, 0 FN; 2026-10-27 prompt)
+- [ ] Benchmark re-run in real mode with the current prompt and tripwire floor, model and final decision reported separately
 - [ ] Remediation snippets generated for human review, never auto-executed
