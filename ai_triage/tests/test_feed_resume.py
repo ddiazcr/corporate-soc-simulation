@@ -78,6 +78,9 @@ class FollowerCursorTests(unittest.TestCase):
                 for x in lineas:
                     if x:
                         pos, cuerpo = wazuh_feed.separar_cursor(x.decode())
+                        if cuerpo == "#start":
+                            self.inicio = pos
+                            continue
                         out.append((pos, json.loads(cuerpo)["id"]))
         return out
 
@@ -114,6 +117,7 @@ class FollowerCursorTests(unittest.TestCase):
             finally:
                 p.kill(); p.wait()
             self.assertEqual((pos, wid), ((os.stat(ruta).st_ino, os.path.getsize(ruta)), "a0"))
+            self.assertEqual(self.inicio, (os.stat(ruta).st_ino, 0))     # start mark: before any alert
 
     def test_rotated_file_is_replayed_from_its_start_and_reported(self):
         with tempfile.TemporaryDirectory() as d:
@@ -287,6 +291,109 @@ class InterruptedReviewTests(unittest.TestCase):
             (caso,), = c.execute("SELECT id FROM casos").fetchall()
             self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "pending")])
 
+    def test_no_dedup_restart_resumes_the_same_case_instead_of_opening_another(self):
+        """With --no-dedup (or an expired dedup window) a replayed alert would
+        open a second case; the alert -> case link written at the first save
+        makes the restart resume the review on the original case."""
+        self.lineas = ["@7:100 " + alerta(T[1], "C")]
+        triage.notificar = lambda *a, **kw: (_ for _ in ()).throw(KeyboardInterrupt())
+        sys.argv = ["wazuh_feed.py", "--ssh", "lab@192.168.56.102", "--no-dedup"]
+        wazuh_feed.main()
+        triage.notificar = self.orig[1]
+        orig_sol = self.orig[3]
+        triage.solicitar_aprobacion = lambda conn, caso_id, analisis, entrada=input, analista="analista": \
+            orig_sol(conn, caso_id, analisis, entrada=lambda *_: "r", analista=analista)
+        wazuh_feed.main()
+        with sqlite3.connect("casos_ad.db") as c:
+            (caso,), = c.execute("SELECT id FROM casos").fetchall()                      # still one case
+            self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "rejected")])
+            self.assertEqual(c.execute("SELECT caso_id, estado FROM feed_procesadas WHERE wazuh_id='C'").fetchone(),
+                             (caso, "atendida"))
+
+
+@unittest.skipUnless(os.name == "posix", "runs the real follower through bash")
+class FirstStartRealFollowerTests(unittest.TestCase):
+    """First start (no checkpoint): the real follower starts at the end of the
+    file; the first alert's review is interrupted after the case commit. The
+    start mark was recorded before it, so the restart reads it again and the
+    review ends on the same case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        self.ruta = os.path.join(self.tmp.name, "alerts.json")
+        with open(self.ruta, "w") as f:
+            f.write(alerta(T[0], "vieja") + "\n")          # before the first start: not ours
+        self.orig = (wazuh_feed.comando_ssh, triage.notificar, triage.MODE, triage.solicitar_aprobacion, sys.argv)
+        triage.MODE = "SIMULADO"
+        wazuh_feed.comando_ssh = lambda destino, cursor=None: ["bash", "-c", wazuh_feed.comando_remoto(self.ruta, cursor)]
+        sys.argv = ["wazuh_feed.py", "--ssh", "lab@192.168.56.102"]
+
+    def tearDown(self):
+        (wazuh_feed.comando_ssh, triage.notificar, triage.MODE, triage.solicitar_aprobacion, sys.argv) = self.orig
+        os.chdir(self.cwd)
+        self.tmp.cleanup()
+
+    def _parar_cuando(self, condicion, timeout=15):
+        import signal
+        import threading
+
+        def vigilar():
+            fin = time.time() + timeout
+            while time.time() < fin and not condicion():
+                time.sleep(0.2)
+            os.kill(os.getpid(), signal.SIGINT)              # the analyst's Ctrl+C
+        threading.Thread(target=vigilar, daemon=True).start()
+
+    def _db(self, sql):
+        try:
+            with sqlite3.connect("casos_ad.db") as c:
+                return c.execute(sql).fetchall()
+        except sqlite3.Error:
+            return []
+
+    def test_first_alert_survives_a_hard_kill_after_the_case_commit(self):
+        """The first run is killed with SIGKILL (no finally, no clean exit)
+        right after the first alert's case is committed."""
+        import signal
+        bandera = os.path.join(self.tmp.name, "caso_guardado")
+        aqui = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        guion = (
+            "import os, sys, time\n"
+            f"sys.path.insert(0, {aqui!r})\n"
+            "import soc_ai_triage as triage, wazuh_feed\n"
+            "triage.MODE = 'SIMULADO'\n"
+            f"wazuh_feed.comando_ssh = lambda d, cursor=None: ['bash', '-c', wazuh_feed.comando_remoto({self.ruta!r}, cursor)]\n"
+            f"def colgar(*a, **k):\n    open({bandera!r}, 'w').close()\n    time.sleep(60)\n"
+            "triage.notificar = colgar\n"
+            "sys.argv = ['wazuh_feed.py', '--ssh', 'lab@192.168.56.102']\n"
+            "wazuh_feed.main()\n")
+        p = subprocess.Popen([sys.executable, "-c", guion], cwd=self.tmp.name,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(1.5)                                     # follower started at the end
+            with open(self.ruta, "a") as f:
+                f.write(alerta(T[2], "primera") + "\n")
+            fin = time.time() + 15
+            while time.time() < fin and not os.path.exists(bandera):
+                time.sleep(0.1)
+            self.assertTrue(os.path.exists(bandera), "the case was never committed")
+        finally:
+            os.kill(p.pid, signal.SIGKILL)                      # hard stop: no finally runs
+            p.wait()
+        (caso,), = self._db("SELECT id FROM casos")
+        self.assertEqual(self._db("SELECT COUNT(*) FROM decisiones"), [(0,)])
+
+        orig_sol = self.orig[3]
+        triage.solicitar_aprobacion = lambda conn, caso_id, analisis, entrada=input, analista="analista": \
+            orig_sol(conn, caso_id, analisis, entrada=lambda *_: "a", analista=analista)
+        self._parar_cuando(lambda: self._db("SELECT 1 FROM feed_procesadas WHERE estado='atendida'"))
+        wazuh_feed.main()                                       # restart with the real follower
+        self.assertEqual(self._db("SELECT id FROM casos"), [(caso,)])
+        self.assertEqual(self._db("SELECT caso_id, decision FROM decisiones"), [(caso, "approved")])
+        self.assertEqual(self._db("SELECT wazuh_id, caso_id, estado FROM feed_procesadas"),
+                         [("primera", caso, "atendida")])     # 'vieja' was before the first start
 
 if __name__ == "__main__":
     unittest.main()

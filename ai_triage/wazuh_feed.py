@@ -23,7 +23,10 @@ Flags
 Live mode resumes after a stop. The remote reader tags every line with the
 file's inode and the byte offset where the line ends; after each alert is
 handled (triage AND a row in `decisiones`), that position and the alert id are
-recorded in casos_ad.db for this manager (feed_cursor, feed_procesadas). On
+recorded in casos_ad.db for this manager (feed_cursor, feed_procesadas); the
+alert -> case link is written as soon as the case is saved, so an interrupted
+review is resumed on the same case. The reader's start position is recorded
+before the first alert. On
 start the reader continues from the recorded position, so an alert written
 during the stop is read even if its timestamp is older than the last one
 handled; an alert already handled is skipped. If the file was rotated or
@@ -177,6 +180,10 @@ else:
     sys.stderr.write("wazuh_feed: alerts.json was rotated or truncated since the checkpoint; "
                      "replaying the current file from its start\n")
     sys.stderr.flush()
+# Start mark: where reading begins, before any alert. The client records it at
+# once, so even the first alert of a first start is read again after a stop.
+sys.stdout.buffer.write(b"@%d:%d #start\n" % (ino, f.tell()))
+sys.stdout.flush()
 pend = b""
 while True:
     chunk = f.readline()
@@ -321,7 +328,9 @@ def init_checkpoint(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS feed_cursor (
         manager TEXT PRIMARY KEY, inode INTEGER, posicion INTEGER, momento TEXT)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS feed_procesadas (
-        manager TEXT, wazuh_id TEXT, caso_id TEXT, momento TEXT,
+        manager TEXT, wazuh_id TEXT, caso_id TEXT,
+        estado TEXT,            -- en_revision (case saved) | atendida (decision recorded)
+        momento TEXT,
         PRIMARY KEY (manager, wazuh_id))""")
     conn.commit()
 
@@ -344,14 +353,25 @@ def guardar_cursor(conn, manager, cursor):
     conn.commit()
 
 
-def ya_procesada(conn, manager, wazuh_id):
-    return wazuh_id is not None and conn.execute(
-        "SELECT 1 FROM feed_procesadas WHERE manager=? AND wazuh_id=?", (manager, wazuh_id)).fetchone() is not None
+def estado_alerta(conn, manager, wazuh_id):
+    """(estado, caso_id) of an alert this feed already took, or (None, None)."""
+    fila = wazuh_id is not None and conn.execute(
+        "SELECT estado, caso_id FROM feed_procesadas WHERE manager=? AND wazuh_id=?",
+        (manager, wazuh_id)).fetchone()
+    return tuple(fila) if fila else (None, None)
 
 
-def marcar_procesada(conn, manager, alerta, caso_id):
-    conn.execute("INSERT OR IGNORE INTO feed_procesadas VALUES (?,?,?,?)",
-                 (manager, alerta.get("_wazuh_id"), caso_id, datetime.now(timezone.utc).isoformat()))
+def vincular_caso(conn, manager, alerta, caso_id):
+    """Alert -> case link, written as soon as the case is committed (before
+    notification and the approval prompt), independent of content dedup."""
+    conn.execute("INSERT OR REPLACE INTO feed_procesadas VALUES (?,?,?,?,?)",
+                 (manager, alerta.get("_wazuh_id"), caso_id, "en_revision", datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+
+
+def marcar_atendida(conn, manager, alerta, caso_id):
+    conn.execute("INSERT OR REPLACE INTO feed_procesadas VALUES (?,?,?,?,?)",
+                 (manager, alerta.get("_wazuh_id"), caso_id, "atendida", datetime.now(timezone.utc).isoformat()))
     conn.commit()
 
 
@@ -432,6 +452,8 @@ def main():
             pos, linea = separar_cursor(linea.strip())
             if not linea.startswith("{"):
                 atendida = pos or atendida
+                if manager and linea == "#start":
+                    guardar_cursor(conn, manager, atendida)   # before the first alert
                 continue
             try:
                 alerta = convertir(json.loads(linea))
@@ -448,18 +470,30 @@ def main():
             if salida:
                 convertidas.append(alerta)
                 continue
-            if manager and ya_procesada(conn, manager, alerta["_wazuh_id"]):
-                print(f"  · alerta {alerta['_wazuh_id']} ya atendida antes, se omite")
-                atendida = pos or atendida
-                continue
+            if manager:
+                estado, caso_previo = estado_alerta(conn, manager, alerta["_wazuh_id"])
+                if estado == "atendida":
+                    print(f"  · alerta {alerta['_wazuh_id']} ya atendida antes, se omite")
+                    atendida = pos or atendida
+                    continue
+                if estado == "en_revision":
+                    # Case saved in an earlier run, review not finished: resume
+                    # it on that case, without triaging again (dedup or not).
+                    print(f"  · alerta {alerta['_wazuh_id']}: retomando la revisión del caso {caso_previo}")
+                    asegurar_decision(conn, caso_previo)
+                    marcar_atendida(conn, manager, alerta, caso_previo)
+                    atendida = pos or atendida
+                    guardar_cursor(conn, manager, atendida)
+                    continue
             print(f"\n>>> Wazuh {alerta['timestamp']} regla {alerta['rule_id']} "
                   f"(nivel {alerta['level']}) {alerta['src_ip']} -> {alerta['dest_ip']}")
-            res = triage.procesar_alerta(conn, alerta, forzar_nuevo=forzar)
+            vinculo = (lambda caso, a=alerta: vincular_caso(conn, manager, a, caso)) if manager else None
+            res = triage.procesar_alerta(conn, alerta, forzar_nuevo=forzar, al_guardar=vinculo)
             caso_id = res[0] if isinstance(res, tuple) else res
             if manager:
                 asegurar_decision(conn, caso_id)
-                # Recorded only now: a stop before this point replays the alert.
-                marcar_procesada(conn, manager, alerta, caso_id)
+                # 'atendida' only now: a stop before this point resumes the review.
+                marcar_atendida(conn, manager, alerta, caso_id)
                 atendida = pos or atendida
                 guardar_cursor(conn, manager, atendida)
     except KeyboardInterrupt:

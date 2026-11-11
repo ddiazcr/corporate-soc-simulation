@@ -626,7 +626,11 @@ def evaluar_caso(conn, caso_id, esperado):
     }
 
 
-def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
+def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=None):
+    """Triage one alert. `al_guardar(caso_id)`, if given, is called right after
+    the case is committed (new or merged) and before the analyst is notified
+    or asked: a caller can link its own reference to the case before anything
+    that may be interrupted."""
     alerta = limpiar(alerta)
     if int(alerta.get("level", 0)) < MIN_LEVEL:
         print(f"[SKIP] Regla {alerta.get('rule_id')} nivel {alerta.get('level')} < {MIN_LEVEL}, no se triagea")
@@ -641,6 +645,8 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
         caso_id, conteo = existente
         conn.execute("UPDATE casos SET ultima_deteccion=?, conteo=? WHERE id=?", (ahora, conteo + 1, caso_id))
         conn.commit()
+        if al_guardar:
+            al_guardar(caso_id)
         print(f"[DEDUP] Caso {caso_id} actualizado (conteo={conteo + 1})")
         return caso_id
 
@@ -693,6 +699,8 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
         ),
     )
     conn.commit()
+    if al_guardar:
+        al_guardar(caso_id)
     notificar(caso_id, alerta, analisis, estado, relacionado)
     if estado == "analizado":
         print(f"  [métricas] latencia={metricas['latencia_s']}s "

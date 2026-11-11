@@ -315,16 +315,19 @@ feed was stopped: the remote reader always started at the end of
 the byte offset where the line ends, and the feed keeps a checkpoint per
 manager in `casos_ad.db`:
 
-- `feed_cursor` — position of the last line fully handled;
-- `feed_procesadas` — Wazuh alert id → case id, written only after triage
-  **and** a row in `decisiones` exist for that case.
+- `feed_cursor` — position of the last line fully handled. The reader also
+  emits a start mark with its initial position, recorded before the first
+  alert, so even the first alert of a first start is read again after a crash;
+- `feed_procesadas` — Wazuh alert id → case id. Written as `en_revision` as soon
+  as the case is saved (before notification and the approval prompt), and
+  `atendida` once a row in `decisiones` exists for that case.
 
 | Situation | Behaviour |
 |---|---|
 | First start, or `--from-end` | New alerts only |
 | Restart | Continues from the recorded position: an alert written during the stop is read even if its timestamp is older than the last one handled |
 | Alert already handled (replayed) | Skipped |
-| Stop after the case was saved but before the analyst decided | The replayed alert is merged into that case and the decision is asked now (or recorded `pending` without a terminal), linked to the case |
+| Stop (even a hard kill) after the case was saved but before the analyst decided | The replayed alert is found as `en_revision`: the review resumes on **that** case, without triaging again — also with `--no-dedup` or an expired dedup window. Without a terminal the decision is recorded `pending`, linked to the case |
 | Case without an AI verdict | Same: the feed asks for the decision instead of leaving none |
 | File rotated or truncated since (inode changed / shorter) | Current file replayed from its start; the reader says so. Alerts between the checkpoint and the rotation stay in the rotated file |
 | `--file` replay | Never reads or writes the checkpoint |

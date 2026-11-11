@@ -257,7 +257,10 @@ class StandInSshTests(unittest.TestCase):
 
             def esperar_linea():
                 try:
-                    resultado["linea"] = next(gen)
+                    linea = next(gen)
+                    while wazuh_feed.separar_cursor(linea.strip())[1] == "#start":
+                        linea = next(gen)          # the follower's start mark, not an alert
+                    resultado["linea"] = linea
                 except BaseException as e:   # StreamCerrado once the group is killed
                     resultado["error"] = e
 
