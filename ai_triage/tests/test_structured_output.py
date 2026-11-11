@@ -156,6 +156,16 @@ class PolicyAndLengthNotificationTests(unittest.TestCase):
         self.assertTrue(msg.startswith("Caso caso-3"))
         self.assertIn("Prioridad: critical", msg)
 
+    def test_long_mitre_id_cannot_push_priority_and_action_out(self):
+        raro = dict(CON_RAZON, mitre_id="T" * 6000, resumen="R" * 5000, razonamiento="J" * 10000)
+        msg = self._capturar(lambda: t.notificar("caso-4", dict(ALERTA), raro, "analizado"))
+        self.assertLessEqual(len(msg), t.TELEGRAM_MAX)
+        lineas = msg.split("\n")
+        self.assertTrue(lineas[0].startswith("Caso caso-4"))
+        self.assertTrue(lineas[1].startswith("Prioridad: critical"))
+        self.assertIn("requiere aprobación humana): escalate_tier2", lineas[2])
+        self.assertLess(len(lineas[3]), t.MITRE_MAX + 40)        # MITRE line capped
+
 
 if __name__ == "__main__":
     unittest.main()

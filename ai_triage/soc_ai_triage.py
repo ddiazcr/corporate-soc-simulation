@@ -462,6 +462,7 @@ def enviar_telegram(mensaje):
 TELEGRAM_MAX = 4096  # sendMessage text limit (characters)
 RESUMEN_MAX = 600    # model text is capped in the notice; the full text stays in casos_ad.db
 RAZON_MAX = 900
+MITRE_MAX = 80
 
 
 def recortar(texto, limite, caso_id):
@@ -479,11 +480,13 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
         nota_piso = f" [piso tripwire; modelo: {piso['prioridad_modelo']}]" if piso else ""
         # Identity, final priority and final action first: they must survive
         # any trimming. Model text comes after, capped.
+        # Every free-text field from the model (mitre_id included) comes after
+        # these three lines, and mitre_id is capped too.
         mensaje = (
             f"Caso {caso_id}{flag}\n"
-            f"Regla: {alerta.get('rule_id')} | MITRE: {analisis.get('mitre_id')}\n"
             f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']}){nota_piso}\n"
-            f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}"
+            f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
+            f"Regla: {alerta.get('rule_id')} | MITRE: {recortar(analisis.get('mitre_id'), MITRE_MAX, caso_id)}"
         )
         if piso:
             # The model's justification argues for ITS verdict, which the policy
