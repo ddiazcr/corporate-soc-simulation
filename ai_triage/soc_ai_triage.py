@@ -422,11 +422,21 @@ def solicitar_aprobacion(conn, caso_id, analisis, entrada=input, analista="anali
     if interactivo:
         print(f"\n  Acción sugerida por la IA: {accion}")
         print("  ¿Qué hacés? [a]probar  [r]echazar (falso positivo)  [s]altar")
-        try:
-            resp = (entrada("  > ") or "").strip().lower()
-        except EOFError:
-            resp = ""
-        decision = {"a": "approved", "r": "rejected", "s": "skipped"}.get(resp, "skipped")
+        opciones = {"a": "approved", "r": "rejected", "s": "skipped"}
+        # Only an explicit answer becomes a decision. Anything else is asked
+        # again instead of being logged as "skipped": a typo or a lost
+        # keystroke must not read as the analyst's choice. No input at all
+        # (EOF) leaves the case pending.
+        while True:
+            try:
+                resp = (entrada("  > ") or "").strip().lower()
+            except EOFError:
+                decision = "pending"
+                break
+            if resp in opciones:
+                decision = opciones[resp]
+                break
+            print(f"  Respuesta no válida ({resp!r}). Escribí a, r o s.")
     conn.execute(
         "INSERT INTO decisiones (caso_id, accion_sugerida, decision, analista, momento) VALUES (?,?,?,?,?)",
         (caso_id, accion, decision, analista, datetime.now(timezone.utc).isoformat()),

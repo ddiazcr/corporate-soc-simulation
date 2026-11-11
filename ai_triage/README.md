@@ -307,6 +307,16 @@ closes, even if no alert arrives. Every 0.5 s while idle it checks the path:
   `ls -li alerts.json` before and after. It travels base64-encoded so the command has no quotes to break
 on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 
+### The analyst's keyboard belongs to the approval prompt
+
+`ssh` is started with `stdin` set to `DEVNULL`. In the 2026-11-11 live run it
+inherited the console's stdin and competed with the approval prompt for each
+keystroke: on two of three alerts the analyst typed `a` + Enter and the
+decision was logged as `skipped`, because ssh had read the input and sent it to
+the manager. The gate also no longer turns an unrecognized answer into
+`skipped`: it asks again until it gets `a`, `r` or `s`, and no input at all
+(EOF) leaves the case `pending`.
+
 ### How the live stream ends
 
 | Ending | Behaviour | Exit status |

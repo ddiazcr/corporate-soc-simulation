@@ -226,7 +226,11 @@ def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX):
              else {"start_new_session": True})
     # Binary, unbuffered pipe read line by line: no text-mode read-ahead, so each
     # alert is handed over as soon as its line arrives.
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0, **grupo)
+    # stdin=DEVNULL: ssh must never read the analyst's keyboard. Inherited, it
+    # competed with the approval prompt for each keystroke and forwarded the
+    # ones it won to the manager (2026-11-11 live run: "a" + Enter recorded as
+    # skipped on two of three alerts).
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, bufsize=0, **grupo)
     print(f"  ssh local PID: {proc.pid}")
     # Bounded: if triage falls behind (a human answering the approval prompt),
     # the reader blocks instead of buffering without limit, and the backlog
