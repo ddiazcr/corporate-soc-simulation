@@ -29,6 +29,7 @@ Wazuh alert (level >= 10)
 |---|---|
 | **The model suggests, the human decides** | Log fields (usernames, SPNs) are attacker-controlled, so model output is untrusted. Containing a domain controller breaks authentication for the whole org and is never automated. Every suggestion goes through an approval gate and is logged. |
 | **Only alerts go to the model, never raw event streams** | The SIEM filters and correlates; the model assists on dozens of alerts a day, not thousands of events per second. Keeps cost and latency realistic. Only alerts at level ≥ 10 are triaged. |
+| **A cut response is rejected** | If the model stops at `max_tokens` (1024), the verdict is rejected even when a JSON object can still be parsed: what is missing is unknown. The alert falls back to manual handling (tripwire rules keep their priority floor) and the call's cost still counts. The parser takes the first complete JSON object and records any text around it as a deviation. |
 | **Output validated against a strict schema** | Free text cannot be automated safely. `suggested_action` must be exactly one of a **fixed allowlist**; anything else is rejected and the alert falls back to safe manual handling. |
 | **Prompt-injection defenses** | Alert data is passed as delimited `<alert>` data, never as instructions. The system prompt tells the model that any field trying to steer it is itself a suspicious indicator that *raises* priority. The model has no credentials and no tools. |
 | **Prompt caching for static context** | The triage instructions are marked with `cache_control`. Measured result: the current system prompt (~1.1k tokens) is below the model's minimum cacheable length, so the first real run shows **no cache discount** — cost matches the uncached price exactly. Caching becomes useful once playbooks / MITRE context grow the static prompt. |
@@ -253,6 +254,7 @@ mode, since they reuse a recent rule/IP pair with altered content.
 | `eval_mixed_alerts.json` | Labeled benchmark: 4 benign look-alikes, 4 attacks, 2 injections. |
 | `wazuh_feed.py` | Streams real Wazuh alerts (SSH `tail -F` on `alerts.json`) into the pipeline. |
 | `eval_results.json` | Created by `--eval`: per-alert verdicts and the accuracy summary. |
+| `eval_raw_responses.jsonl` | Created by `--eval`: every raw model response (text, `stop_reason`, token usage), for audit. |
 | `casos_ad.db` | Created on run: case files (`casos`) and the human decision log (`decisiones`). |
 
 ## Measured run (2026-10-26, real mode)
