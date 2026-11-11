@@ -188,7 +188,24 @@ AI_MODE=REAL python3 soc_ai_triage.py eval_mixed_alerts.json --eval
 # writes eval_results.json: accuracy, false negatives, false positives, injection detection, latency, cost
 ```
 
-### Result (2026-11-10, current prompt, real mode, `claude-haiku-4-5-20251001`, temperature 0)
+### Result with structured output (2026-11-10, real mode, `claude-haiku-4-5-20251001`, temperature 0)
+
+Same set as below, with the verdict schema enforced by the API and a
+`razonamiento` field. Evidence: [`docs/evidence/benchmark-2026-11-10-structured-output/`](../docs/evidence/benchmark-2026-11-10-structured-output/).
+
+| | Result |
+|---|---|
+| Final decision / model alone | **10/10 / 10/10** · 0 FP · 0 FN · injections 2/2 |
+| Stop reason | `end_turn` 10/10 · truncated 0 · no verdict 0 |
+| Text outside the JSON | **0/10** (was 7/10) · `razonamiento` non-empty in 10/10 |
+| Tokens (10 alerts) | in 28,031 (+26%) · out 4,541 (−28%) |
+| Cost / latency | $0.0507 per run (−5%) · 6.68 s mean latency (observed) |
+
+Schema and prompt changed together, so the differences are their joint
+effect. One verdict changed and stayed correct: the scanner IP attacking
+`Administrator` went from `high/manual_review` to `high/escalate_tier2`.
+
+### Result before structured output (2026-11-10, current prompt, real mode, `claude-haiku-4-5-20251001`, temperature 0)
 
 Code with the tripwire floor and stop-reason handling. Raw responses and the
 full report: [`docs/evidence/benchmark-2026-11-10/`](../docs/evidence/benchmark-2026-11-10/).
@@ -439,5 +456,5 @@ This is a small, controlled test set, not a benchmark: two injection attempts re
 - [ ] Prompt caching effective (needs a larger static prompt)
 - [x] Live Wazuh integration — one end-to-end live run (2026-11-08, n = 1): alert in the feed 1.90 s after the action, Telegram 8.27 s ([evidence](../docs/evidence/live-run-2026-11-08/))
 - [x] Accuracy and false-positive rate on a labeled 10-alert benchmark: 10/10, 0 FP, 0 FN (2026-10-27), re-run with the current prompt and tripwire floor on 2026-11-10: final 10/10, model alone 10/10, raw responses kept
-- [ ] Model returns the JSON object alone (7/10 responses added a rationale after it on 2026-11-10; structured output requested, real-mode measurement pending)
+- [x] Model returns the JSON object alone: structured output, 0/10 responses with text outside the JSON (7/10 before), justification kept in `razonamiento`
 - [ ] Remediation snippets generated for human review, never auto-executed
