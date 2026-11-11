@@ -53,6 +53,12 @@ MIN_LEVEL = 10  # only alerts at or above this Wazuh level are triaged
 MODE = os.environ.get("AI_MODE", "SIMULADO")  # "SIMULADO" or "REAL"
 MODEL = "claude-haiku-4-5-20251001"
 EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scored vs ground truth
+# Room for the full verdict. A response cut at this limit is rejected (see
+# analizar_con_ia), so the limit must sit well above a normal verdict.
+MAX_TOKENS = 1024
+EVAL_RAW = "eval_raw_responses.jsonl"  # --eval: every raw model response, for audit
+EXIT_AUDITORIA = 4  # --eval stopped: a raw response could not be recorded
+EVAL_RESULTS = "eval_results.json"  # --eval: summary + per-alert scores of THIS run only
 
 # suggested_action must be exactly one of these. Anything else is rejected by
 # schema validation and the alert falls back to safe manual handling.
@@ -241,18 +247,40 @@ def validar_esquema(analisis):
     return analisis
 
 
-def parsear_json_ia(texto):
+class RespuestaIncompleta(ValueError):
+    """The model did not finish its turn normally (stop_reason != end_turn):
+    the verdict may be partial, a refusal, or cut by the context window."""
+
+
+class RespuestaTruncada(RespuestaIncompleta):
+    """The model stopped at max_tokens."""
+
+
+class ErrorAuditoria(RuntimeError):
+    """--eval could not record a raw model response. The run is incomplete:
+    this is a harness failure, not a model failure, so it must not be scored
+    as a missing verdict."""
+
+
+def extraer_json(texto):
+    """Return (object, extra_chars): the first complete JSON object in the
+    response and how many non-blank characters surround it. The prompt asks
+    for the object alone, so extra_chars > 0 is recorded as a deviation. A
+    greedy brace match is not used: prose with braces after the object could
+    change what gets parsed."""
     texto = texto.strip()
     if texto.startswith("```"):
         texto = re.sub(r"^```(json)?", "", texto).strip()
         texto = re.sub(r"```$", "", texto).strip()
-    try:
-        return json.loads(texto)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", texto, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise
+    inicio = texto.find("{")
+    if inicio < 0:
+        raise ValueError("la respuesta no contiene un objeto JSON")
+    obj, fin = json.JSONDecoder().raw_decode(texto, inicio)
+    return obj, len(texto[:inicio].strip()) + len(texto[fin:].strip())
+
+
+def parsear_json_ia(texto):
+    return extraer_json(texto)[0]
 
 
 def analizar_con_ia(alerta):
@@ -290,7 +318,7 @@ def analizar_con_ia(alerta):
         },
         json={
             "model": MODEL,
-            "max_tokens": 600,
+            "max_tokens": MAX_TOKENS,
             "temperature": 0,  # deterministic verdicts, reproducible measurements
             "system": [{
                 "type": "text",
@@ -303,7 +331,8 @@ def analizar_con_ia(alerta):
     )
     resp.raise_for_status()
     data = resp.json()
-    analisis = validar_esquema(parsear_json_ia(data["content"][0]["text"]))
+    texto = "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+    stop_reason = data.get("stop_reason")
     u = data.get("usage", {})
     ti = u.get("input_tokens", 0)
     to = u.get("output_tokens", 0)
@@ -319,7 +348,33 @@ def analizar_con_ia(alerta):
         "cache_read": cache_read,
         "cache_write": cache_write,
         "costo_usd": round(costo, 6),
+        "stop_reason": stop_reason,
+        "texto_extra": None,
     }
+    if EVAL:
+        try:
+            with open(EVAL_RAW, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
+                                    "stop_reason": stop_reason, "usage": u, "text": texto},
+                                   ensure_ascii=False) + "\n")
+        except OSError as e:
+            err = ErrorAuditoria(f"no se pudo escribir {EVAL_RAW}: {e}")
+            err.metricas = metricas
+            raise err from e
+    try:
+        # This call expects one text answer in a single turn, so only a normal
+        # end of turn is trusted. A response that stopped for any other reason
+        # (max_tokens, refusal, model_context_window_exceeded, ...) is rejected
+        # even if a JSON object can still be pulled out of it.
+        if stop_reason == "max_tokens":
+            raise RespuestaTruncada(f"respuesta cortada en max_tokens={MAX_TOKENS}")
+        if stop_reason != "end_turn":
+            raise RespuestaIncompleta(f"stop_reason={stop_reason!r}, se esperaba 'end_turn'")
+        obj, metricas["texto_extra"] = extraer_json(texto)
+        analisis = validar_esquema(obj)
+    except Exception as e:
+        e.metricas = metricas  # the call was made and billed even if rejected
+        raise
     return analisis, metricas
 
 
@@ -535,8 +590,11 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
             pa = analisis["piso_aplicado"]
             print(f"  [PISO] regla tripwire {pa['regla']}: modelo dijo {pa['prioridad_modelo']}/"
                   f"{pa['accion_modelo']} -> {analisis['prioridad']}/{analisis['accion_sugerida']}")
+    except ErrorAuditoria:
+        raise  # harness failure: stop the run, never score it as a model failure
     except Exception as e:
-        analisis, metricas, estado = None, {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}, "sin_analisis"
+        analisis, estado = None, "sin_analisis"
+        metricas = getattr(e, "metricas", None) or {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}
         print(f"[ERROR] Falló/invalidó el análisis de IA: {e}")
 
     if analisis:
@@ -571,7 +629,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
         print(f"  [métricas] latencia={metricas['latencia_s']}s "
               f"tokens={metricas['tokens_in']}in/{metricas['tokens_out']}out costo=${metricas['costo_usd']}")
         solicitar_aprobacion(conn, caso_id, analisis, entrada=entrada)
-    return caso_id, metricas if estado == "analizado" else None
+    return caso_id, metricas
 
 
 def main():
@@ -587,21 +645,40 @@ def main():
           f"{' (dedup off)' if forzar_nuevo else ''}{' | EVALUACIÓN' if EVAL else ''}\n")
     total_costo, total_lat, analizadas = 0.0, 0.0, 0
     resultados = []
+    if EVAL:
+        # One run per output: remove both files from any previous run first,
+        # so an aborted run can never leave an older score next to its audit.
+        for previo in (EVAL_RAW, EVAL_RESULTS):
+            if os.path.exists(previo):
+                os.remove(previo)
     for alerta in alertas:
-        res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
-        if isinstance(res, tuple) and res[1]:
-            total_costo += res[1]["costo_usd"]
-            total_lat += res[1]["latencia_s"]
+        try:
+            res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
+        except ErrorAuditoria as e:
+            costo = total_costo + e.metricas.get("costo_usd", 0)
+            print(f"\n[ERROR] {e}\n  Corrida INCOMPLETA: {len(resultados)} de {len(alertas)} alertas "
+                  f"evaluadas; la llamada de la alerta {alerta.get('rule_id')} se hizo "
+                  f"(costo ${e.metricas.get('costo_usd')}, stop_reason={e.metricas.get('stop_reason')}). "
+                  f"Costo acumulado ${round(costo, 6)}. No hay {EVAL_RESULTS} de esta corrida "
+                  f"(el de corridas anteriores se borró al iniciar).")
+            sys.exit(EXIT_AUDITORIA)
+        met = res[1] if isinstance(res, tuple) else None
+        if met and met.get("latencia_s"):  # every model call, accepted or rejected
+            total_costo += met["costo_usd"]
+            total_lat += met["latencia_s"]
             analizadas += 1
         if EVAL and "_expected" in alerta:
             caso_id = res[0] if isinstance(res, tuple) else res
             fila = evaluar_caso(conn, caso_id, alerta["_expected"])
-            fila.update({"rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip")})
+            fila.update({"rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
+                         "stop_reason": (met or {}).get("stop_reason"),
+                         "tokens_out": (met or {}).get("tokens_out"),
+                         "texto_extra": (met or {}).get("texto_extra")})
             resultados.append(fila)
         time.sleep(0.2)
 
     if analizadas:
-        print(f"\n[métricas] {analizadas} alertas analizadas | "
+        print(f"\n[métricas] {analizadas} llamadas al modelo | "
               f"latencia media {round(total_lat/analizadas,3)}s | costo total ${round(total_costo,6)}")
 
     if EVAL and resultados:
@@ -621,6 +698,9 @@ def main():
             "inyecciones_detectadas": f"{sum(bool(r['inyeccion_detectada']) for r in iny if r['inyeccion_evaluable'])}"
                                       f"/{sum(r['inyeccion_evaluable'] for r in iny)}",
             "inyeccion_no_evaluable": sum(not r["inyeccion_evaluable"] for r in resultados),
+            "respuestas_truncadas": sum(r["stop_reason"] == "max_tokens" for r in resultados),
+            "respuestas_con_texto_extra": sum(bool(r["texto_extra"]) for r in resultados),
+            "max_tokens": MAX_TOKENS,
             "falsas_alarmas_de_inyeccion": sum(bool(r["inyeccion_detectada"]) for r in resultados
                                                if r["inyeccion_evaluable"] and not r["inyeccion_esperada"]),
             "latencia_media_s": round(total_lat / analizadas, 3) if analizadas else None,
@@ -632,12 +712,13 @@ def main():
             modelo_txt = "sin veredicto" if r["modelo_sin_veredicto"] else f"{r['prioridad_modelo']}/{r['accion_modelo']}"
             print(f"  [{marca}] {r['rule_id']} {str(r['src_ip']):<15} esperado={r['esperado']:<6} "
                   f"-> final {r['prioridad']}/{r['accion']} | modelo {modelo_txt} | "
-                  f"iny={r['inyeccion_detectada'] if r['inyeccion_evaluable'] else 'no evaluable'}")
+                  f"iny={r['inyeccion_detectada'] if r['inyeccion_evaluable'] else 'no evaluable'} | "
+                  f"stop={r['stop_reason']} out={r['tokens_out']} extra={r['texto_extra']}")
         for k, v in resumen.items():
             print(f"  {k}: {v}")
-        with open("eval_results.json", "w", encoding="utf-8") as f:
+        with open(EVAL_RESULTS, "w", encoding="utf-8") as f:
             json.dump({"resumen": resumen, "detalle": resultados}, f, ensure_ascii=False, indent=2)
-        print("\n  Detalle guardado en eval_results.json")
+        print(f"\n  Detalle guardado en {EVAL_RESULTS}")
 
     conn.close()
     print(f"\nListo. Casos en {DB_PATH} (tabla casos); decisiones humanas en la tabla decisiones.")
