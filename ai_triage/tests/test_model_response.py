@@ -167,5 +167,74 @@ class TruncationInPipelineTests(unittest.TestCase):
         self.assertEqual(met["stop_reason"], "max_tokens")
 
 
+class StopReasonTests(unittest.TestCase):
+    """Only end_turn is trusted for this single-turn text call."""
+
+    def test_valid_json_with_any_other_stop_reason_is_rejected(self):
+        for reason in ("refusal", "model_context_window_exceeded", "pause_turn",
+                       "tool_use", "stop_sequence", None):
+            with self.subTest(stop_reason=reason):
+                with ModeloStub(respuesta_api(json.dumps(VEREDICTO), reason)):
+                    with self.assertRaises(t.RespuestaIncompleta) as cm:
+                        t.analizar_con_ia(dict(ALERTA))
+                self.assertNotIsInstance(cm.exception, t.RespuestaTruncada)
+                self.assertGreater(cm.exception.metricas["costo_usd"], 0)
+                self.assertEqual(cm.exception.metricas["stop_reason"], reason)
+
+    def test_refusal_on_a_tripwire_ends_on_the_floor(self):
+        with ModeloStub(respuesta_api(json.dumps(VEREDICTO), "refusal")):
+            conn = t.init_db()
+            caso_id, met = t.procesar_alerta(conn, dict(ALERTA), forzar_nuevo=True,
+                                             entrada=lambda *_: "s")
+            fila = t.evaluar_caso(conn, caso_id, {"label": "attack", "injection": False})
+            conn.close()
+        self.assertEqual((fila["estado"], fila["prioridad"]), ("sin_analisis", "high"))
+        self.assertEqual(met["stop_reason"], "refusal")
+
+
+class AuditWriteFailureTests(unittest.TestCase):
+    """--eval: failing to record a raw response stops the run; it is never
+    scored as a model failure and the call's cost is kept."""
+
+    def setUp(self):
+        self.orig = t.EVAL_RAW
+        t.EVAL_RAW = os.path.join("no-such-dir", "raw.jsonl")  # open() fails
+
+    def tearDown(self):
+        t.EVAL_RAW = self.orig
+
+    def test_write_failure_after_a_valid_response_is_an_audit_error(self):
+        with ModeloStub(respuesta_api(json.dumps(VEREDICTO)), eval_mode=True):
+            with self.assertRaises(t.ErrorAuditoria) as cm:
+                t.analizar_con_ia(dict(ALERTA))
+        self.assertGreater(cm.exception.metricas["costo_usd"], 0)
+        self.assertEqual(cm.exception.metricas["stop_reason"], "end_turn")
+
+    def test_pipeline_does_not_turn_it_into_a_missing_verdict(self):
+        with ModeloStub(respuesta_api(json.dumps(VEREDICTO)), eval_mode=True):
+            conn = t.init_db()
+            with self.assertRaises(t.ErrorAuditoria):
+                t.procesar_alerta(conn, dict(ALERTA), forzar_nuevo=True, entrada=lambda *_: "s")
+            guardados = conn.execute("SELECT COUNT(*) FROM casos").fetchone()[0]
+            conn.close()
+        self.assertEqual(guardados, 0)   # no case stored as sin_analisis
+
+    def test_eval_run_stops_with_an_explicit_exit_code_and_no_results_file(self):
+        alerta = dict(ALERTA, _expected={"label": "attack", "injection": False})
+        with ModeloStub(respuesta_api(json.dumps(VEREDICTO)), eval_mode=True) as s:
+            with open("bench.json", "w", encoding="utf-8") as f:
+                json.dump([alerta], f)
+            orig_argv = sys.argv
+            sys.argv = ["soc_ai_triage.py", "bench.json", "--eval"]
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    t.main()
+            finally:
+                sys.argv = orig_argv
+            existe = os.path.exists(os.path.join(s.tmp.name, "eval_results.json"))
+        self.assertEqual(cm.exception.code, t.EXIT_AUDITORIA)
+        self.assertFalse(existe)
+
+
 if __name__ == "__main__":
     unittest.main()

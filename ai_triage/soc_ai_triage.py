@@ -57,6 +57,7 @@ EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scor
 # analizar_con_ia), so the limit must sit well above a normal verdict.
 MAX_TOKENS = 1024
 EVAL_RAW = "eval_raw_responses.jsonl"  # --eval: every raw model response, for audit
+EXIT_AUDITORIA = 4  # --eval stopped: a raw response could not be recorded
 
 # suggested_action must be exactly one of these. Anything else is rejected by
 # schema validation and the alert falls back to safe manual handling.
@@ -245,8 +246,19 @@ def validar_esquema(analisis):
     return analisis
 
 
-class RespuestaTruncada(ValueError):
-    """The model stopped at max_tokens: the verdict may be incomplete."""
+class RespuestaIncompleta(ValueError):
+    """The model did not finish its turn normally (stop_reason != end_turn):
+    the verdict may be partial, a refusal, or cut by the context window."""
+
+
+class RespuestaTruncada(RespuestaIncompleta):
+    """The model stopped at max_tokens."""
+
+
+class ErrorAuditoria(RuntimeError):
+    """--eval could not record a raw model response. The run is incomplete:
+    this is a harness failure, not a model failure, so it must not be scored
+    as a missing verdict."""
 
 
 def extraer_json(texto):
@@ -339,15 +351,24 @@ def analizar_con_ia(alerta):
         "texto_extra": None,
     }
     if EVAL:
-        with open(EVAL_RAW, "a", encoding="utf-8") as f:
-            f.write(json.dumps({"rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
-                                "stop_reason": stop_reason, "usage": u, "text": texto},
-                               ensure_ascii=False) + "\n")
+        try:
+            with open(EVAL_RAW, "a", encoding="utf-8") as f:
+                f.write(json.dumps({"rule_id": alerta.get("rule_id"), "src_ip": alerta.get("src_ip"),
+                                    "stop_reason": stop_reason, "usage": u, "text": texto},
+                                   ensure_ascii=False) + "\n")
+        except OSError as e:
+            err = ErrorAuditoria(f"no se pudo escribir {EVAL_RAW}: {e}")
+            err.metricas = metricas
+            raise err from e
     try:
-        # A cut response is never trusted, even if a JSON object can still be
-        # pulled out of it: the part that is missing is unknown.
+        # This call expects one text answer in a single turn, so only a normal
+        # end of turn is trusted. A response that stopped for any other reason
+        # (max_tokens, refusal, model_context_window_exceeded, ...) is rejected
+        # even if a JSON object can still be pulled out of it.
         if stop_reason == "max_tokens":
             raise RespuestaTruncada(f"respuesta cortada en max_tokens={MAX_TOKENS}")
+        if stop_reason != "end_turn":
+            raise RespuestaIncompleta(f"stop_reason={stop_reason!r}, se esperaba 'end_turn'")
         obj, metricas["texto_extra"] = extraer_json(texto)
         analisis = validar_esquema(obj)
     except Exception as e:
@@ -568,6 +589,8 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
             pa = analisis["piso_aplicado"]
             print(f"  [PISO] regla tripwire {pa['regla']}: modelo dijo {pa['prioridad_modelo']}/"
                   f"{pa['accion_modelo']} -> {analisis['prioridad']}/{analisis['accion_sugerida']}")
+    except ErrorAuditoria:
+        raise  # harness failure: stop the run, never score it as a model failure
     except Exception as e:
         analisis, estado = None, "sin_analisis"
         metricas = getattr(e, "metricas", None) or {"latencia_s": 0, "tokens_in": 0, "tokens_out": 0, "costo_usd": 0.0}
@@ -624,7 +647,15 @@ def main():
     if EVAL and os.path.exists(EVAL_RAW):
         os.remove(EVAL_RAW)  # one benchmark run per file
     for alerta in alertas:
-        res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
+        try:
+            res = procesar_alerta(conn, alerta, forzar_nuevo=forzar_nuevo)
+        except ErrorAuditoria as e:
+            costo = total_costo + e.metricas.get("costo_usd", 0)
+            print(f"\n[ERROR] {e}\n  Corrida INCOMPLETA: {len(resultados)} de {len(alertas)} alertas "
+                  f"evaluadas; la llamada de la alerta {alerta.get('rule_id')} se hizo "
+                  f"(costo ${e.metricas.get('costo_usd')}, stop_reason={e.metricas.get('stop_reason')}). "
+                  f"Costo acumulado ${round(costo, 6)}. No se escribe eval_results.json.")
+            sys.exit(EXIT_AUDITORIA)
         met = res[1] if isinstance(res, tuple) else None
         if met and met.get("latencia_s"):  # every model call, accepted or rejected
             total_costo += met["costo_usd"]
