@@ -29,6 +29,7 @@ Wazuh alert (level >= 10)
 |---|---|
 | **The model suggests, the human decides** | Log fields (usernames, SPNs) are attacker-controlled, so model output is untrusted. Containing a domain controller breaks authentication for the whole org and is never automated. Every suggestion goes through an approval gate and is logged. |
 | **Only alerts go to the model, never raw event streams** | The SIEM filters and correlates; the model assists on dozens of alerts a day, not thousands of events per second. Keeps cost and latency realistic. Only alerts at level ≥ 10 are triaged. |
+| **Structured output, justification inside the verdict** | The request sends the verdict's JSON schema as `output_config.format` (`json_schema`), so the API constrains the response to that object: no markdown fence, no prose around it. The justification the model used to write after the JSON goes in a `razonamiento` field, is stored in full with the case and shown in the Telegram message, capped (summary 600, justification 900 characters, whole message within Telegram's 4,096) with case ID, final priority and final action first. When the tripwire floor overrides the model, the text is labeled as the model's justification for its original verdict, next to the rule that explains the final decision. Allowlisted values are `enum`s in the schema, and `validar_esquema` still checks every verdict. No assistant prefill: it is incompatible with structured outputs. |
 | **Only a finished answer is trusted** | The call expects one text answer in a single turn, so a verdict is accepted only with `stop_reason = end_turn`. Any other reason (`max_tokens` at 1024, `refusal`, `model_context_window_exceeded`, …) rejects it even when a JSON object can still be parsed. The alert falls back to manual handling (tripwire rules keep their priority floor) and the call's cost still counts. The parser takes the first complete JSON object and records any text around it as a deviation. |
 | **The benchmark stops if its audit trail fails** | In `--eval`, if a raw response cannot be written to `eval_raw_responses.jsonl`, the run stops with exit code 4, reporting the cost of that call: a harness failure is never scored as a model without verdict. Each `--eval` run first deletes the previous `eval_results.json` and `eval_raw_responses.jsonl`, so a stopped run leaves no older score behind. |
 | **Output validated against a strict schema** | Free text cannot be automated safely. `suggested_action` must be exactly one of a **fixed allowlist**; anything else is rejected and the alert falls back to safe manual handling. |
@@ -187,7 +188,24 @@ AI_MODE=REAL python3 soc_ai_triage.py eval_mixed_alerts.json --eval
 # writes eval_results.json: accuracy, false negatives, false positives, injection detection, latency, cost
 ```
 
-### Result (2026-11-10, current prompt, real mode, `claude-haiku-4-5-20251001`, temperature 0)
+### Result with structured output (2026-11-10, real mode, `claude-haiku-4-5-20251001`, temperature 0)
+
+Same set as below, with the verdict schema enforced by the API and a
+`razonamiento` field. Evidence: [`docs/evidence/benchmark-2026-11-10-structured-output/`](../docs/evidence/benchmark-2026-11-10-structured-output/).
+
+| | Result |
+|---|---|
+| Final decision / model alone | **10/10 / 10/10** · 0 FP · 0 FN · injections 2/2 |
+| Stop reason | `end_turn` 10/10 · truncated 0 · no verdict 0 |
+| Text outside the JSON | **0/10** (was 7/10) · `razonamiento` non-empty in 10/10 |
+| Tokens (10 alerts) | in 28,031 (+26%) · out 4,541 (−28%) |
+| Cost / latency | $0.0507 per run (−5%) · 6.68 s mean latency (observed) |
+
+Schema and prompt changed together, so the differences are their joint
+effect. One verdict changed and stayed correct: the scanner IP attacking
+`Administrator` went from `high/manual_review` to `high/escalate_tier2`.
+
+### Result before structured output (2026-11-10, current prompt, real mode, `claude-haiku-4-5-20251001`, temperature 0)
 
 Code with the tripwire floor and stop-reason handling. Raw responses and the
 full report: [`docs/evidence/benchmark-2026-11-10/`](../docs/evidence/benchmark-2026-11-10/).
@@ -438,5 +456,5 @@ This is a small, controlled test set, not a benchmark: two injection attempts re
 - [ ] Prompt caching effective (needs a larger static prompt)
 - [x] Live Wazuh integration — one end-to-end live run (2026-11-08, n = 1): alert in the feed 1.90 s after the action, Telegram 8.27 s ([evidence](../docs/evidence/live-run-2026-11-08/))
 - [x] Accuracy and false-positive rate on a labeled 10-alert benchmark: 10/10, 0 FP, 0 FN (2026-10-27), re-run with the current prompt and tripwire floor on 2026-11-10: final 10/10, model alone 10/10, raw responses kept
-- [ ] Model returns the JSON object alone (7/10 responses added a rationale after it)
+- [x] Model returns the JSON object alone: structured output, 0/10 responses with text outside the JSON (7/10 before), justification kept in `razonamiento`
 - [ ] Remediation snippets generated for human review, never auto-executed

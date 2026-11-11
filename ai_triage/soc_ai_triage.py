@@ -74,6 +74,31 @@ ACCIONES_PERMITIDAS = {
 PRIORIDADES = {"low", "medium", "high", "critical"}
 CONFIANZAS = {"low", "medium", "high"}
 
+# Structured output: the API constrains the response to this JSON schema, so
+# the model cannot add a markdown fence or prose around the object (7/10
+# responses did on 2026-11-10). The justification it used to write after the
+# JSON now has its own field and is kept with the verdict. validar_esquema
+# still checks every verdict: the schema is enforced by the API, the contract
+# by this code.
+SCHEMA_VEREDICTO = {
+    "type": "object",
+    "properties": {
+        "resumen": {"type": "string"},
+        "razonamiento": {"type": "string"},
+        "prioridad": {"type": "string", "enum": sorted(PRIORIDADES)},
+        "confianza": {"type": "string", "enum": sorted(CONFIANZAS)},
+        "mitre_id": {"type": ["string", "null"]},
+        "campos_sustento": {"type": "array", "items": {"type": "string"}},
+        "accion_sugerida": {"type": "string", "enum": sorted(ACCIONES_PERMITIDAS)},
+        "verificaciones_sugeridas": {"type": "array", "items": {"type": "string"}},
+        "possible_prompt_injection": {"type": "boolean"},
+    },
+    "required": ["resumen", "razonamiento", "prioridad", "confianza", "mitre_id",
+                 "campos_sustento", "accion_sugerida", "verificaciones_sugeridas",
+                 "possible_prompt_injection"],
+    "additionalProperties": False,
+}
+
 # Tripwire rules: they only fire on objects that have no legitimate use (the
 # honeytoken SPN account, the decoy AD account). Their priority must not depend
 # on the model's judgement: the model adds context and a summary, but cannot
@@ -244,6 +269,10 @@ def validar_esquema(analisis):
         raise ValueError(f"accion fuera de la lista permitida: {analisis['accion_sugerida']!r}")
     if not isinstance(analisis["possible_prompt_injection"], bool):
         raise ValueError("possible_prompt_injection debe ser booleano")
+    # Required by the API schema; optional here so verdicts stored before the
+    # field existed still load. If present it must be text.
+    if "razonamiento" in analisis and not isinstance(analisis["razonamiento"], str):
+        raise ValueError("razonamiento debe ser texto")
     return analisis
 
 
@@ -290,6 +319,7 @@ def analizar_con_ia(alerta):
     if MODE != "REAL":
         analisis = {
             "resumen": f"[SIMULADO] Actividad asociada a la regla {alerta.get('rule_id')}",
+            "razonamiento": "[SIMULADO] Veredicto fijo para probar el flujo sin llamar a la API.",
             "prioridad": "high",
             "confianza": "medium",
             "mitre_id": alerta.get("mitre_id"),
@@ -326,6 +356,7 @@ def analizar_con_ia(alerta):
                 "cache_control": {"type": "ephemeral"},
             }],
             "messages": [{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
+            "output_config": {"format": {"type": "json_schema", "schema": SCHEMA_VEREDICTO}},
         },
         timeout=40,
     )
@@ -428,18 +459,46 @@ def enviar_telegram(mensaje):
         print(f"[ERROR] Telegram falló: {e}\n{mensaje}")
 
 
+TELEGRAM_MAX = 4096  # sendMessage text limit (characters)
+RESUMEN_MAX = 600    # model text is capped in the notice; the full text stays in casos_ad.db
+RAZON_MAX = 900
+MITRE_MAX = 80
+
+
+def recortar(texto, limite, caso_id):
+    texto = str(texto)
+    if len(texto) <= limite:
+        return texto
+    nota = f" … [recortado; completo en casos_ad.db, caso {caso_id}]"
+    return texto[:max(0, limite - len(nota))].rstrip() + nota
+
+
 def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
     if estado == "analizado":
         flag = " ⚠️ POSIBLE INYECCIÓN EN EL LOG" if analisis.get("possible_prompt_injection") else ""
         piso = analisis.get("piso_aplicado")
         nota_piso = f" [piso tripwire; modelo: {piso['prioridad_modelo']}]" if piso else ""
+        # Identity, final priority and final action first: they must survive
+        # any trimming. Model text comes after, capped.
+        # Every free-text field from the model (mitre_id included) comes after
+        # these three lines, and mitre_id is capped too.
         mensaje = (
             f"Caso {caso_id}{flag}\n"
-            f"Regla: {alerta.get('rule_id')} | MITRE: {analisis.get('mitre_id')}\n"
             f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']}){nota_piso}\n"
             f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
-            f"Resumen: {analisis['resumen']}"
+            f"Regla: {alerta.get('rule_id')} | MITRE: {recortar(analisis.get('mitre_id'), MITRE_MAX, caso_id)}"
         )
+        if piso:
+            # The model's justification argues for ITS verdict, which the policy
+            # overrode: say so, and say what explains the final decision.
+            mensaje += (f"\nDecisión final por política: regla tripwire {piso['regla']} -> prioridad "
+                        f"mínima {piso['piso']} y sin descartar la alerta. El modelo había propuesto "
+                        f"{piso['prioridad_modelo']}/{piso['accion_modelo']}.")
+        mensaje += f"\nResumen: {recortar(analisis['resumen'], RESUMEN_MAX, caso_id)}"
+        if analisis.get("razonamiento"):
+            etiqueta = ("Justificación del modelo (para su veredicto original, no para la decisión final)"
+                        if piso else "Por qué")
+            mensaje += f"\n{etiqueta}: {recortar(analisis['razonamiento'], RAZON_MAX, caso_id)}"
     else:
         piso = prioridad_por_regla(alerta.get("rule_id"), alerta)
         mensaje = (
@@ -453,7 +512,7 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
             mensaje += "Revisar manualmente."
     if caso_relacionado:
         mensaje += f"\nNota: mismo rule/IPs que el caso {caso_relacionado} pero contenido distinto."
-    enviar_telegram(mensaje)
+    enviar_telegram(recortar(mensaje, TELEGRAM_MAX, caso_id))  # last guard; the header comes first
 
 
 # --------------------------------------------------------------------------- #
