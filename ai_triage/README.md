@@ -199,11 +199,13 @@ full report: [`docs/evidence/benchmark-2026-11-10/`](../docs/evidence/benchmark-
 | Changed by the tripwire floor | 0 (no `100230` case in this set; the floor has its own tests) |
 | Injections flagged | 2/2 · 0 false alarms |
 | Stop reason | `end_turn` 10/10 · truncated 0 · no verdict 0 |
-| Text outside the JSON | 7/10: a markdown fence plus a `Rationale` section after the object, ignored by the parser; none contradicts its verdict |
-| Latency / cost | 7.6 s mean · $0.0536 per run (~$0.0054/alert) |
+| Text outside the JSON | 7/10: a markdown fence plus an explanation after the object (5 headed `Rationale`, 2 other headings), ignored by the parser; none contradicts its verdict |
+| Cost / latency | $0.0536 per run (~$0.0054/alert) · 7.6 s mean latency (observed) |
 
-Every verdict matches the 2026-10-27 run below. The extra rationale costs
-output tokens (642–775 vs 363–572), which is why latency and cost went up.
+Every verdict matches the 2026-10-27 run below. The responses with an
+explanation used more output tokens (642–775 vs 363–572), which accounts for
+the higher cost; the higher mean latency is reported as observed, not
+attributed.
 An earlier re-run the same day (`max_tokens` 600) is not published: 7
 responses hit the limit and the raw text was not kept, so it led to the
 stop-reason fix instead.

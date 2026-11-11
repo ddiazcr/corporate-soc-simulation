@@ -20,13 +20,14 @@ handling #7). Run on the analyst host (Windows), 2026-11-10 ~23:30 UTC−6.
 | Prompt injections flagged | 2/2, 0 false alarms |
 | Stop reason | `end_turn` 10/10 · truncated 0 · without verdict 0 |
 | Text outside the JSON object | **7/10** (see below) |
-| Latency / cost | 7.6 s mean · $0.0536 for 10 alerts (~$0.0054/alert) · no cache hits |
+| Cost / latency | $0.0536 for 10 alerts (~$0.0054/alert) · no cache hits · 7.6 s mean latency (observed) |
 
 ## Deviation: text after the JSON
 
 The prompt asks for the JSON object only. In 7 of 10 responses the model
-wrapped it in a markdown fence and then added a `Rationale` section
-(978–1,318 characters). The pipeline takes the first complete JSON object and
+wrapped it in a markdown fence and then added an explanation after it
+(978–1,318 characters): five under a `Rationale` heading, two under other
+headings (an explanation of the critical finding, and of the injection flag). The pipeline takes the first complete JSON object and
 records the rest (`texto_extra`), so the verdicts were not affected.
 
 Each of the 7 rationales was read against its verdict: **none contradicts
@@ -37,7 +38,9 @@ calls the score cannot show, e.g. why the legacy RC4 server stays at
 attacking `Administrator` gets `manual_review` rather than isolation.
 
 The extra text is not free: those 7 responses used 642–775 output tokens
-against 363–572 for the other 3, which raises latency and cost.
+against 363–572 for the other 3, which accounts for the higher output cost.
+The 7.6 s mean latency (5.9 s on 2026-10-27) is reported as observed: these
+files carry no per-alert timings, so the difference is not attributed here.
 
 ## The earlier run of the same day is not published
 
