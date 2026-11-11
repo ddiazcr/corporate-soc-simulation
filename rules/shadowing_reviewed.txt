@@ -9,3 +9,10 @@
 100210 92656  # requires logonType 10
 100210 67022  # negated logonType: no match when the field is absent (live: ::1 tickets reached 100212)
 100210 67024  # requires logonType 5
+# 100230 (4662, decoy object read): siblings under 60103 whose eventID pattern
+# spans several lines (whitespace and empty alternatives), so the checker keeps
+# them. They list group-management IDs (47xx/6xx). Live: a 4662 on the decoy
+# reached 100230 on 2026-11-02, so none of them took it.
+100230 60113  # group membership changes (4728/4729/4732/...); multi-line pattern
+100230 60138  # group created (4727/4731/4754/...); multi-line pattern
+100230 60139  # group deleted (4730/4734/4758/...); multi-line pattern

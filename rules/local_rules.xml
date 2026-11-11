@@ -119,7 +119,8 @@
             ::1 alerted, the same request from ::ffff:192.168.56.10 did not.
       60119 (if_fts) - first time a user is seen; same effect, once per user.
     Listing them as parents makes the rule reachable on every path.
-    Check with: python3 rules/check_shadowing.py <wazuh ruleset/rules dir>
+    Static check: python3 rules/check_shadowing.py <wazuh ruleset/rules dir>
+    Engine check: rules/engine_test/ (real analysisd, before/after, rollback)
   -->
   <rule id="100210" level="8">
     <if_sid>60106, 60119, 92651</if_sid>

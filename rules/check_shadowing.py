@@ -27,7 +27,8 @@ import sys
 
 RULE = re.compile(r'<rule id="(\d+)" level="(\d+)"[^>]*>(.*?)</rule>', re.S)
 IF_SID = re.compile(r"<if_sid>([^<]+)</if_sid>")
-EVENT_ID = re.compile(r'<field name="win\.system\.eventID"[^>]*>([^<]*)<')
+EVENT_ID = re.compile(r'<field name="win\.system\.eventID"([^>]*)>([^<]*)<')
+ALTERNATIVA = re.compile(r"^(\^\d+\$|\d+)$")   # ^4624$ (exact) or 4624 (substring)
 
 
 def reglas(texto):
@@ -37,9 +38,34 @@ def reglas(texto):
         yield rid, int(nivel), padres, (ev[0] if ev else None)
 
 
+def acepta(filtro):
+    """For an event-ID filter, a function id -> bool, or None when its meaning
+    cannot be stated safely.
+
+    Understood: a positive OS_Regex filter whose alternatives are all ^N$
+    (exact) or N (unanchored, i.e. substring). Anything else - negate="yes"
+    (accepts every OTHER ID), a type= (pcre2...), whitespace or an empty
+    alternative inside the pattern, any other regex - returns None, so the
+    sibling is kept for review instead of being skipped."""
+    if not filtro:
+        return None
+    atributos, patron = filtro
+    if "negate" in atributos or "type=" in atributos:
+        return None
+    alts = patron.split("|")
+    if not all(ALTERNATIVA.match(a) for a in alts):   # no strip: whitespace is not understood
+        return None
+    exactos = {a[1:-1] for a in alts if a.startswith("^")}
+    sub = [a for a in alts if not a.startswith("^")]
+    return lambda ev: ev in exactos or any(x in ev for x in sub)
+
+
 def ids_fijados(filtro):
-    """Event IDs a filter like ^4769$|^4624$ pins, or None if it pins none."""
-    return set(re.findall(r"\^?(\d+)\$?", filtro)) if filtro else None
+    """Event IDs a local rule pins: only an exact positive list (^N$|^M$)."""
+    f = acepta(filtro)
+    if f is None or any(not a.startswith("^") for a in filtro[1].split("|")):
+        return None
+    return set(re.findall(r"\d+", filtro[1]))
 
 
 def revisar(dir_ruleset, ruta_local):
@@ -56,9 +82,9 @@ def revisar(dir_ruleset, ruta_local):
         for f, bid, nivel, bpadres, bfiltro in builtin:
             if bid in padres or not (bpadres & padres):
                 continue
-            suyos = ids_fijados(bfiltro)
-            if mios and suyos and not (mios & suyos):
-                continue  # the sibling only takes other event IDs
+            suyo = acepta(bfiltro)
+            if mios and suyo is not None and not any(suyo(ev) for ev in mios):
+                continue  # the sibling provably takes only other event IDs
             hallazgos.append((rid, bid, nivel, f, sorted(bpadres & padres)))
     return hallazgos
 
