@@ -327,7 +327,11 @@ class FirstStartRealFollowerTests(unittest.TestCase):
             f.write(alerta(T[0], "vieja") + "\n")          # before the first start: not ours
         self.orig = (wazuh_feed.comando_ssh, triage.notificar, triage.MODE, triage.solicitar_aprobacion, sys.argv)
         triage.MODE = "SIMULADO"
-        wazuh_feed.comando_ssh = lambda destino, cursor=None: ["bash", "-c", wazuh_feed.comando_remoto(self.ruta, cursor)]
+        # Like the real ssh: stopping it must end the remote follower too, so the
+        # stand-in kills its whole group on TERM (as test_wazuh_feed's exec_remote).
+        wazuh_feed.comando_ssh = lambda destino, cursor=None: [
+            "bash", "-c", "trap 'kill 0' TERM; bash -c \"$1\" & wait $!", "ssh",
+            wazuh_feed.comando_remoto(self.ruta, cursor)]
         sys.argv = ["wazuh_feed.py", "--ssh", "lab@192.168.56.102"]
 
     def tearDown(self):
@@ -364,7 +368,9 @@ class FirstStartRealFollowerTests(unittest.TestCase):
             f"sys.path.insert(0, {aqui!r})\n"
             "import soc_ai_triage as triage, wazuh_feed\n"
             "triage.MODE = 'SIMULADO'\n"
-            f"wazuh_feed.comando_ssh = lambda d, cursor=None: ['bash', '-c', wazuh_feed.comando_remoto({self.ruta!r}, cursor)]\n"
+            "wazuh_feed.comando_ssh = lambda d, cursor=None: ['bash', '-c', "
+            "\"trap 'kill 0' TERM; bash -c \\\"$1\\\" & wait $!\", 'ssh', "
+            f"wazuh_feed.comando_remoto({self.ruta!r}, cursor)]\n"
             f"def colgar(*a, **k):\n    open({bandera!r}, 'w').close()\n    time.sleep(60)\n"
             "triage.notificar = colgar\n"
             "sys.argv = ['wazuh_feed.py', '--ssh', 'lab@192.168.56.102']\n"
@@ -382,6 +388,10 @@ class FirstStartRealFollowerTests(unittest.TestCase):
         finally:
             os.kill(p.pid, signal.SIGKILL)                      # hard stop: no finally runs
             p.wait()
+            # Its follower notices the closed pipe (POLLHUP) and exits; wait for it.
+            fin = time.time() + 5
+            while time.time() < fin and subprocess.run(["pgrep", "-f", self.ruta], capture_output=True).returncode == 0:
+                time.sleep(0.2)
         (caso,), = self._db("SELECT id FROM casos")
         self.assertEqual(self._db("SELECT COUNT(*) FROM decisiones"), [(0,)])
 
