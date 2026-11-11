@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 300" width="640" height="300" role="img" aria-labelledby="title desc">
+  <title id="title">Live run timeline, Kerberoasting on a honeytoken, 2026-11-08 (single run)</title>
+  <desc id="desc">From the Enter on DC01 (0 s): alert in the triage feed at 1.90 s, Telegram receives the message at 8.27 s, the feed prints the verdict at 8.73 s. Model verdict latency reported by the pipeline: 5.81 s. Single run, measured on the screen recording.</desc>
+  <style>
+    .t { font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; fill: #0f172a; }
+    .h { font-size: 24px; font-weight: 700; }
+    .s { font-size: 16px; fill: #475569; }
+    .v { font-size: 22px; font-weight: 700; fill: #0369a1; }
+    .l { font-size: 17px; font-weight: 600; }
+    .m { font-size: 15px; fill: #64748b; }
+  </style>
+  <rect x="0" y="0" width="640" height="300" rx="16" fill="#ffffff" stroke="#e2e8f0"/>
+  <text class="t h" x="28" y="44">Attack → alert → AI verdict → Telegram</text>
+  <text class="t s" x="28" y="70">Kerberoasting on a honeytoken · single run, 2026-11-08</text>
+
+  <!-- axis: 0 s at x=48, 9 s at x=600 → 61.33 px/s -->
+  <line x1="48" y1="160" x2="600" y2="160" stroke="#cbd5e1" stroke-width="5" stroke-linecap="round"/>
+  <line x1="48" y1="160" x2="164.5" y2="160" stroke="#0ea5e9" stroke-width="10" stroke-linecap="round"/>
+  <line x1="164.5" y1="160" x2="555.2" y2="160" stroke="#8b5cf6" stroke-width="10" stroke-linecap="round"/>
+
+  <!-- T3 label above the axis (avoids crowding T2) -->
+  <circle cx="583.4" cy="160" r="8" fill="#ffffff" stroke="#8b5cf6" stroke-width="3"/>
+  <text class="t m" x="612" y="124" text-anchor="end">8.73 s · feed prints verdict</text>
+
+  <circle cx="48" cy="160" r="11" fill="#0f172a"/>
+  <text class="t l" x="28" y="124">0 s · Enter on DC01 (klist get)</text>
+
+  <circle cx="164.5" cy="160" r="11" fill="#0ea5e9"/>
+  <text class="t v" x="164.5" y="206" text-anchor="middle">1.90 s</text>
+  <text class="t l" x="164.5" y="230" text-anchor="middle">Alert in feed</text>
+  <text class="t m" x="164.5" y="250" text-anchor="middle">rule 100212</text>
+
+  <circle cx="555.2" cy="160" r="11" fill="#8b5cf6"/>
+  <text class="t v" x="612" y="206" text-anchor="end">8.27 s</text>
+  <text class="t l" x="612" y="230" text-anchor="end">Telegram receives</text>
+  <text class="t m" x="612" y="250" text-anchor="end">model: 5.81 s (reported)</text>
+
+  <text class="t m" x="28" y="284">The suggested action waits for a human decision.</text>
+</svg>
