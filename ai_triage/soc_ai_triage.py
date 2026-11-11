@@ -459,20 +459,43 @@ def enviar_telegram(mensaje):
         print(f"[ERROR] Telegram falló: {e}\n{mensaje}")
 
 
+TELEGRAM_MAX = 4096  # sendMessage text limit (characters)
+RESUMEN_MAX = 600    # model text is capped in the notice; the full text stays in casos_ad.db
+RAZON_MAX = 900
+
+
+def recortar(texto, limite, caso_id):
+    texto = str(texto)
+    if len(texto) <= limite:
+        return texto
+    nota = f" … [recortado; completo en casos_ad.db, caso {caso_id}]"
+    return texto[:max(0, limite - len(nota))].rstrip() + nota
+
+
 def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
     if estado == "analizado":
         flag = " ⚠️ POSIBLE INYECCIÓN EN EL LOG" if analisis.get("possible_prompt_injection") else ""
         piso = analisis.get("piso_aplicado")
         nota_piso = f" [piso tripwire; modelo: {piso['prioridad_modelo']}]" if piso else ""
+        # Identity, final priority and final action first: they must survive
+        # any trimming. Model text comes after, capped.
         mensaje = (
             f"Caso {caso_id}{flag}\n"
             f"Regla: {alerta.get('rule_id')} | MITRE: {analisis.get('mitre_id')}\n"
             f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']}){nota_piso}\n"
-            f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
-            f"Resumen: {analisis['resumen']}"
+            f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}"
         )
+        if piso:
+            # The model's justification argues for ITS verdict, which the policy
+            # overrode: say so, and say what explains the final decision.
+            mensaje += (f"\nDecisión final por política: regla tripwire {piso['regla']} -> prioridad "
+                        f"mínima {piso['piso']} y sin descartar la alerta. El modelo había propuesto "
+                        f"{piso['prioridad_modelo']}/{piso['accion_modelo']}.")
+        mensaje += f"\nResumen: {recortar(analisis['resumen'], RESUMEN_MAX, caso_id)}"
         if analisis.get("razonamiento"):
-            mensaje += f"\nPor qué: {analisis['razonamiento']}"
+            etiqueta = ("Justificación del modelo (para su veredicto original, no para la decisión final)"
+                        if piso else "Por qué")
+            mensaje += f"\n{etiqueta}: {recortar(analisis['razonamiento'], RAZON_MAX, caso_id)}"
     else:
         piso = prioridad_por_regla(alerta.get("rule_id"), alerta)
         mensaje = (
@@ -486,7 +509,7 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
             mensaje += "Revisar manualmente."
     if caso_relacionado:
         mensaje += f"\nNota: mismo rule/IPs que el caso {caso_relacionado} pero contenido distinto."
-    enviar_telegram(mensaje)
+    enviar_telegram(recortar(mensaje, TELEGRAM_MAX, caso_id))  # last guard; the header comes first
 
 
 # --------------------------------------------------------------------------- #

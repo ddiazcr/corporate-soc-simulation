@@ -91,5 +91,71 @@ class NotificationTests(unittest.TestCase):
         self.assertIn("Por qué: " + CON_RAZON["razonamiento"], mensajes[0])
 
 
+class PolicyAndLengthNotificationTests(unittest.TestCase):
+
+    def _capturar(self, fn):
+        mensajes = []
+        orig = t.enviar_telegram
+        t.enviar_telegram = mensajes.append
+        try:
+            fn()
+        finally:
+            t.enviar_telegram = orig
+        return mensajes[0]
+
+    def test_floor_labels_the_model_justification_and_states_the_final_rule(self):
+        alerta = dict(ALERTA)                                   # 100212, tripwire
+        modelo = dict(CON_RAZON, prioridad="medium", accion_sugerida="monitor",
+                      razonamiento="Looks like routine reporting; monitoring is enough.")
+        final = t.aplicar_piso_tripwire(alerta["rule_id"], modelo, alerta)
+        self.assertEqual((final["prioridad"], final["accion_sugerida"]), ("high", "escalate_tier2"))
+        msg = self._capturar(lambda: t.notificar("caso-2", alerta, final, "analizado"))
+        self.assertIn("Prioridad: high", msg)
+        self.assertIn("requiere aprobación humana): escalate_tier2", msg)
+        self.assertIn("Decisión final por política: regla tripwire 100212", msg)
+        self.assertIn("El modelo había propuesto medium/monitor", msg)
+        self.assertIn("Justificación del modelo (para su veredicto original, no para la decisión final): "
+                      "Looks like routine reporting", msg)
+        self.assertNotIn("Por qué:", msg)
+
+    def test_long_model_text_is_capped_and_the_full_text_is_stored(self):
+        largo = dict(CON_RAZON, resumen="R" * 5000, razonamiento="J" * 10000)
+        import tempfile
+        tmp = tempfile.TemporaryDirectory()
+        cwd = os.getcwd()
+        os.chdir(tmp.name)
+        mensajes = []
+        orig_a, orig_t = t.analizar_con_ia, t.enviar_telegram
+        try:
+            t.analizar_con_ia = lambda a: (dict(largo), {"latencia_s": 0, "tokens_in": 0,
+                                                          "tokens_out": 0, "costo_usd": 0.0})
+            t.enviar_telegram = mensajes.append
+            conn = t.init_db()
+            caso_id, _ = t.procesar_alerta(conn, dict(ALERTA), forzar_nuevo=True, entrada=lambda *_: "s")
+            guardado = json.loads(conn.execute("SELECT analisis_ia FROM casos WHERE id=?",
+                                               (caso_id,)).fetchone()[0])
+            conn.close()
+        finally:
+            t.analizar_con_ia, t.enviar_telegram = orig_a, orig_t
+            os.chdir(cwd)
+            tmp.cleanup()
+        msg = mensajes[0]
+        self.assertLessEqual(len(msg), t.TELEGRAM_MAX)
+        self.assertTrue(msg.startswith(f"Caso {caso_id}"))
+        self.assertIn("Prioridad: critical", msg)
+        self.assertIn("requiere aprobación humana): escalate_tier2", msg)
+        self.assertIn(f"recortado; completo en casos_ad.db, caso {caso_id}", msg)
+        self.assertEqual(len(guardado["razonamiento"]), 10000)   # nothing lost in the record
+        self.assertEqual(len(guardado["resumen"]), 5000)
+
+    def test_final_guard_keeps_the_header_even_if_everything_else_is_huge(self):
+        largo = dict(CON_RAZON, resumen="R" * 5000, razonamiento="J" * 10000)
+        msg = self._capturar(lambda: t.notificar("caso-3", dict(ALERTA), largo, "analizado",
+                                                 caso_relacionado="x" * 9000))
+        self.assertLessEqual(len(msg), t.TELEGRAM_MAX)
+        self.assertTrue(msg.startswith("Caso caso-3"))
+        self.assertIn("Prioridad: critical", msg)
+
+
 if __name__ == "__main__":
     unittest.main()
