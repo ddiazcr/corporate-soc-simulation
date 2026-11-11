@@ -310,22 +310,27 @@ on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 ### Resuming after a stop
 
 On 2026-11-11 three honeytoken alerts were lost because they fired while the
-feed was stopped: the remote reader started at the end of `alerts.json`. Now
-every alert handed to triage is recorded in `casos_ad.db` (`feed_procesadas`,
-written after triage returns, so a crash replays it instead of losing it). On
-start, the remote reader replays the current `alerts.json` from the last
-recorded timestamp and then follows new lines; alerts already recorded are
-skipped, so nothing is triaged twice.
+feed was stopped: the remote reader always started at the end of
+`alerts.json`. Now the remote reader tags every line with the file's inode and
+the byte offset where the line ends, and the feed keeps a checkpoint per
+manager in `casos_ad.db`:
+
+- `feed_cursor` — position of the last line fully handled;
+- `feed_procesadas` — Wazuh alert id → case id, written only after triage
+  **and** a row in `decisiones` exist for that case.
 
 | Situation | Behaviour |
 |---|---|
-| First start (no checkpoint) or `--from-end` | New alerts only, as before |
-| Stop and restart the same day | Missed alerts are triaged first, then live |
-| Checkpoint older than 24 h | Not resumed; the feed says which interval to review in the dashboard |
-| Stop spans 00:00 UTC (daily rotation) | Resumes the current file and warns that earlier alerts are in the rotated file |
+| First start, or `--from-end` | New alerts only |
+| Restart | Continues from the recorded position: an alert written during the stop is read even if its timestamp is older than the last one handled |
+| Alert already handled (replayed) | Skipped |
+| Stop after the case was saved but before the analyst decided | The replayed alert is merged into that case and the decision is asked now (or recorded `pending` without a terminal), linked to the case |
+| Case without an AI verdict | Same: the feed asks for the decision instead of leaving none |
+| File rotated or truncated since (inode changed / shorter) | Current file replayed from its start; the reader says so. Alerts between the checkpoint and the rotation stay in the rotated file |
+| `--file` replay | Never reads or writes the checkpoint |
 
-The resume timestamp goes into the remote command, so only an exact Wazuh
-timestamp (`YYYY-MM-DDTHH:MM:SS[.fff]+0000`) is accepted.
+The cursor goes into the remote command, so only two non-negative integers
+are accepted.
 
 ### The analyst's keyboard belongs to the approval prompt
 

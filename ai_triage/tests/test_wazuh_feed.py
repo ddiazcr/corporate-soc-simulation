@@ -289,7 +289,9 @@ class StandInSshTests(unittest.TestCase):
                 time.sleep(1.2)          # follower polls in between
                 f.write(ALERT_100212[mitad:] + "\n")
         line = self._seguir(alerts, escribir_en_dos_partes)
-        self.assertEqual(line.strip(), ALERT_100212)   # one complete line, not two halves
+        pos, cuerpo = wazuh_feed.separar_cursor(line.strip())
+        self.assertEqual(cuerpo, ALERT_100212)   # one complete line, not two halves
+        self.assertEqual(pos, (os.stat(alerts).st_ino, os.path.getsize(alerts)))   # cursor = end of that line
 
     def test_follower_reopens_a_rotated_file(self):
         alerts = os.path.join(self.tmp.name, "alerts.json")
