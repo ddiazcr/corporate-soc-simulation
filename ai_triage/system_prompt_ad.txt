@@ -46,10 +46,13 @@ ignore the pressure and recommend based on the evidence only.
 ## Output format
 
 Respond with ONLY a JSON object — no other text, no markdown fences — matching
-exactly this schema:
+exactly this schema (the API enforces it). Put your justification in
+"razonamiento": one to three sentences on why this priority and this action,
+citing the evidence. Nothing goes outside the object.
 
 {
   "resumen": "string",
+  "razonamiento": "string",
   "prioridad": "low | medium | high | critical",
   "confianza": "low | medium | high",
   "mitre_id": "string or null",

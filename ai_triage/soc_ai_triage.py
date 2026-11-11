@@ -74,6 +74,31 @@ ACCIONES_PERMITIDAS = {
 PRIORIDADES = {"low", "medium", "high", "critical"}
 CONFIANZAS = {"low", "medium", "high"}
 
+# Structured output: the API constrains the response to this JSON schema, so
+# the model cannot add a markdown fence or prose around the object (7/10
+# responses did on 2026-11-10). The justification it used to write after the
+# JSON now has its own field and is kept with the verdict. validar_esquema
+# still checks every verdict: the schema is enforced by the API, the contract
+# by this code.
+SCHEMA_VEREDICTO = {
+    "type": "object",
+    "properties": {
+        "resumen": {"type": "string"},
+        "razonamiento": {"type": "string"},
+        "prioridad": {"type": "string", "enum": sorted(PRIORIDADES)},
+        "confianza": {"type": "string", "enum": sorted(CONFIANZAS)},
+        "mitre_id": {"type": ["string", "null"]},
+        "campos_sustento": {"type": "array", "items": {"type": "string"}},
+        "accion_sugerida": {"type": "string", "enum": sorted(ACCIONES_PERMITIDAS)},
+        "verificaciones_sugeridas": {"type": "array", "items": {"type": "string"}},
+        "possible_prompt_injection": {"type": "boolean"},
+    },
+    "required": ["resumen", "razonamiento", "prioridad", "confianza", "mitre_id",
+                 "campos_sustento", "accion_sugerida", "verificaciones_sugeridas",
+                 "possible_prompt_injection"],
+    "additionalProperties": False,
+}
+
 # Tripwire rules: they only fire on objects that have no legitimate use (the
 # honeytoken SPN account, the decoy AD account). Their priority must not depend
 # on the model's judgement: the model adds context and a summary, but cannot
@@ -244,6 +269,10 @@ def validar_esquema(analisis):
         raise ValueError(f"accion fuera de la lista permitida: {analisis['accion_sugerida']!r}")
     if not isinstance(analisis["possible_prompt_injection"], bool):
         raise ValueError("possible_prompt_injection debe ser booleano")
+    # Required by the API schema; optional here so verdicts stored before the
+    # field existed still load. If present it must be text.
+    if "razonamiento" in analisis and not isinstance(analisis["razonamiento"], str):
+        raise ValueError("razonamiento debe ser texto")
     return analisis
 
 
@@ -290,6 +319,7 @@ def analizar_con_ia(alerta):
     if MODE != "REAL":
         analisis = {
             "resumen": f"[SIMULADO] Actividad asociada a la regla {alerta.get('rule_id')}",
+            "razonamiento": "[SIMULADO] Veredicto fijo para probar el flujo sin llamar a la API.",
             "prioridad": "high",
             "confianza": "medium",
             "mitre_id": alerta.get("mitre_id"),
@@ -326,6 +356,7 @@ def analizar_con_ia(alerta):
                 "cache_control": {"type": "ephemeral"},
             }],
             "messages": [{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
+            "output_config": {"format": {"type": "json_schema", "schema": SCHEMA_VEREDICTO}},
         },
         timeout=40,
     )
@@ -440,6 +471,8 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
             f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
             f"Resumen: {analisis['resumen']}"
         )
+        if analisis.get("razonamiento"):
+            mensaje += f"\nPor qué: {analisis['razonamiento']}"
     else:
         piso = prioridad_por_regla(alerta.get("rule_id"), alerta)
         mensaje = (
