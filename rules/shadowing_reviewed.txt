@@ -1,0 +1,11 @@
+# Built-in siblings reviewed by hand: they cannot take the event of the local rule.
+# Format: <local rule> <built-in sibling>  # reason
+# Reviewed against the Wazuh v4.9.2 ruleset (ruleset/rules), 2026-11-11.
+# A 4769 (Kerberos service ticket) carries no logonType, workstationName or
+# authenticationPackageName, so siblings that require those fields never match it.
+100210 60118  # requires logonType 2 and workstationName
+100210 92652  # requires authenticationPackageName NTLM
+100210 92653  # requires logonType 10
+100210 92656  # requires logonType 10
+100210 67022  # negated logonType: no match when the field is absent (live: ::1 tickets reached 100212)
+100210 67024  # requires logonType 5

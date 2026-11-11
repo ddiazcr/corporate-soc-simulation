@@ -88,6 +88,16 @@ does not raise rule 100212, although DC-local requests do.
 - A network-sourced Kerberoast attempt raises an alert.
 - Rule 100212 updated with a regression note; false-positive check documented.
 
+**Root cause (2026-11-11)** — not a field difference. 100210 chained only from
+60106, and the built-in sibling **92651** (`0840-win_event_channel.xml`, level 0,
+"ipAddress holds an IPv4 other than 127.0.0.1") loads first and takes every 4769
+whose source address contains an IPv4: a request from Kali, or from the DC itself
+via `::ffff:192.168.56.10` (seen live: honeytoken tickets from `::1` alerted, the
+same request from `::ffff:192.168.56.10` produced no alert at all). Fix: 100210
+also chains from 92651 (and from 60119, first-time-seen user), plus
+`rules/check_shadowing.py` to catch this class of problem. Status: fixed in the
+rule; **live re-validation from Kali pending**.
+
 ---
 
 ## Collaboration loop (Claude ⇄ Daniel ⇄ ChatGPT)

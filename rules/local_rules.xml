@@ -107,9 +107,22 @@
     In 4.9.2 a successful 4769 is classified by 60106 ("Windows Logon Success"),
     so the rule must chain from there and pin the event ID.
     A burst of these for different services is a strong Kerberoasting signal.
+
+    Parents: 60106 AND its built-in children that a 4769 can hit first.
+    analysisd evaluates the children of 60106 in load order and stops at the
+    first match; built-in rules load before local_rules.xml, so a sibling that
+    matches first hides this rule:
+      92651 (0840-win_event_channel.xml, level 0) - ipAddress holds an IPv4
+            other than 127.0.0.1. A ticket request from another host (or from
+            the DC via ::ffff:192.168.56.10) was silenced there and never
+            reached 100210/100212. Found 2026-11-11: honeytoken tickets from
+            ::1 alerted, the same request from ::ffff:192.168.56.10 did not.
+      60119 (if_fts) - first time a user is seen; same effect, once per user.
+    Listing them as parents makes the rule reachable on every path.
+    Check with: python3 rules/check_shadowing.py <wazuh ruleset/rules dir>
   -->
   <rule id="100210" level="8">
-    <if_sid>60106</if_sid>
+    <if_sid>60106, 60119, 92651</if_sid>
     <field name="win.system.eventID">^4769$</field>
     <field name="win.eventdata.ticketEncryptionType">^0x17$</field>
     <description>Nimbrek: Kerberos service ticket for $(win.eventdata.serviceName) requested with weak RC4 (possible Kerberoasting)</description>

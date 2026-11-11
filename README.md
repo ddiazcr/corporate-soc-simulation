@@ -69,7 +69,7 @@ n = 1: observations of one run, not a benchmark. *Verified* means [`measure_even
 | Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` | 1 replayed (2026-11-07) | Reported |
 | **Benign control — detection:** a legitimate Kerberos ticket for a real service (not the honeytoken) | No `100212` alert | — | ⏳ Not run live | — |
 | **Benign control — triage:** an alert that fires on legitimate activity (look-alike) | Alert; `low`/`medium`, no escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
-| Kerberoasting from the network (Kali) | Alert `100212` | No alert: known detection gap | ⏳ Open | [MITRE mapping](docs/mitre_attack_mapping.md) |
+| Kerberoasting from the network (Kali) | Alert `100212` | No alert: a built-in level-0 rule (92651) took IPv4-sourced 4769s first; rule fixed, live re-test pending | ⏳ Open | [roadmap item 3](docs/roadmap.md) |
 | Model unavailable during a tripwire alert | Still `high` + priority human review | Unit tests only | ⏳ Not run live | [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
 
 Once a scenario has three or more comparable runs, this table will report the number of runs with the median and range per stage, and comparative charts will be added then.
