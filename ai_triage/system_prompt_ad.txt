@@ -72,6 +72,20 @@ exactly this schema:
   against the honeytoken service account "svc_sql_backup" is near-zero false
   positive: that account exists only as a tripwire and should never be used
   legitimately, so any ticket request for it is high priority.
+- Audited account read (rule 100230, event 4662 "Read Property"): the rule
+  matches a read of ANY user-class object that has read auditing, so by itself
+  it does not prove the decoy was touched. Use the field "decoy_verified",
+  which is set by the SOC pipeline (never by the log source) after comparing
+  the event's object GUID with the decoy's objectGUID:
+  * decoy_verified = true: an audited access to the decoy "adm_backup_legacy",
+    an account no person or service uses. High priority. Account discovery
+    (T1087.002) is the leading HYPOTHESIS, not a conclusion: a single read can
+    also come from a broad directory query (an admin tool or inventory script
+    listing every user). Say which evidence would corroborate it (other
+    enumeration from the same subject or host, volume, timing).
+  * decoy_verified = false or absent: an audited read of some other account.
+    Do NOT treat it as a decoy hit; assess it on its own merits.
+  Event 4662 names the object by GUID, not by name; that is expected.
 - Brute force (rule 100200): 8+ failed logons (event 4625) from one source IP.
   High priority. In this lab the source is often Kali (192.168.56.103); that is
   the expected attacker host, not a reason to downgrade.
