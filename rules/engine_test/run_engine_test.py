@@ -24,7 +24,8 @@ process it, and reads the result from alerts.json.
 
 0. Preflight (nothing is changed yet): every rule ID of the new file must be
    defined in exactly one rule file of etc/rules, the target, and in no other
-   file of etc/rules or ruleset/rules. Otherwise installing it would leave
+   file of etc/rules or ruleset/rules; and the new file must define every rule
+   the target defines, since the target is replaced whole. Otherwise installing it would leave
    duplicated IDs, and Wazuh keeps only the first one it loads (warning 7612,
    files in alphabetical order): the test would measure whichever copy wins.
    Found on the manager 2026-11-15, when an earlier version of this script
@@ -35,9 +36,10 @@ process it, and reads the result from alerts.json.
 1. Samples: the latest 100212 alert (4769, svc_sql_backup, RC4, ipAddress ::1)
    and the latest AES 4769, both from this manager's alerts.json. The event is
    rebuilt as Windows XML from the alert's data.win fields.
-2. Fidelity check: the rebuilt honeytoken event is injected; the alert it
-   produces must carry the same data.win fields as the original (except
-   eventRecordID, used as a marker). Otherwise the test stops.
+2. Fidelity check: the rebuilt honeytoken event is injected; in the alert it
+   produces, every data.win.eventdata field of the original and the system
+   fields eventID, providerName, channel, keywords and severityValue must
+   match (eventRecordID is the marker). Otherwise the test stops.
 3. Before: four samples are injected with the rules loaded now:
      honeytoken-loopback  ipAddress ::1                     (as captured)
      honeytoken-dc-fqdn   ipAddress ::ffff:192.168.56.10    (address edited)
@@ -176,6 +178,12 @@ def destino(nuevas):
         detalle = "; ".join(f"{os.path.basename(r)}: {sorted(c)[:6]}" for r, c in con.items()) or "ninguno"
         sys.exit("No se puede elegir un único archivo a reemplazar sin dejar IDs duplicados "
                  f"(archivos con IDs de las reglas nuevas: {detalle}). No se cambió nada.")
+    # The target is replaced whole: a rule it defines that the new file lacks
+    # would be deleted with no 7612 warning to catch it (review of PR #11).
+    faltan = ids_de(locales[0]) - ids
+    if faltan:
+        sys.exit(f"{os.path.basename(locales[0])} define reglas que {os.path.basename(nuevas)} no trae "
+                 f"({sorted(faltan)[:10]}); reemplazarlo las borraría. No se cambió nada.")
     return locales[0]
 
 
@@ -251,7 +259,7 @@ def fidelidad(inj, honey):
     dif = [k for k in honey["eventdata"] if honey["eventdata"][k] != w["eventdata"].get(k)]
     dif += [k for k in ("eventID", "providerName", "channel", "keywords", "severityValue")
             if honey["system"].get(k) != w["system"].get(k)]
-    return not dif, (f"regla {a['rule']['id']}; campos distintos: {dif}" if dif else f"regla {a['rule']['id']}; campos idénticos")
+    return not dif, (f"regla {a['rule']['id']}; campos distintos: {dif}" if dif else f"regla {a['rule']['id']}; coincidieron los campos comparados")
 
 
 def procesado(r):

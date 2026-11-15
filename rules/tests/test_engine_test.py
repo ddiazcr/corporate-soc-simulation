@@ -145,6 +145,14 @@ class TargetTests(unittest.TestCase):
                        extra='<!-- <rule id="100210" level="3"> -->\n<rule id="60106" level="3" overwrite="yes"></rule>\n')
         self.assertEqual(et.ids_de(ruta), {"100230"})
 
+    def test_a_target_rule_missing_from_the_new_file_stops(self):
+        """Replacing the target whole would delete 100101 with no 7612 warning."""
+        self._w(self.etc, "local_rules.xml", "100210", "100212", "100101")
+        with self.assertRaises(SystemExit) as cm:
+            et.destino(self.nuevas)
+        self.assertIn("100101", str(cm.exception))
+        self.assertIn("No se cambió nada", str(cm.exception))
+
     def test_backup_files_are_not_rule_files(self):
         objetivo = self._w(self.etc, "nimbrek_rules.xml", "100210", "100212")
         self._w(self.etc, "local_rules.xml.bak-20261111-183016", "100210")

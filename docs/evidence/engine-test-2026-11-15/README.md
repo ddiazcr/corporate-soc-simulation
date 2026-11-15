@@ -19,8 +19,12 @@ type the agent's events arrive as. The real decoder and the loaded rules then
 process them (see the script's docstring for the source references). The
 samples are rebuilt from real alerts on this manager: a honeytoken ticket
 request (4769, `svc_sql_backup`, RC4 `0x17`, from `::1`) and a legitimate AES
-ticket (`0x12`). A fidelity check confirms the rebuilt honeytoken event alerts
-with the same `data.win` fields as the original.
+ticket (`0x12`). In a fidelity check, the alert produced by the rebuilt
+honeytoken event matched the original on the compared fields: every
+`data.win.eventdata` field of the original, plus the system fields `eventID`,
+`providerName`, `channel`, `keywords` and `severityValue`. The JSON records this
+as "campos idénticos", the wording of the script at the time; later versions
+print "coincidieron los campos comparados".
 
 The honeytoken event is sent three times, changing only the client address:
 
@@ -41,9 +45,11 @@ IDs after each restart.
 | honeytoken, `::ffff:192.168.56.103` (Kali) | **no alert** | 100212, level 12 |
 | AES ticket, legitimate | 60106, level 3 | 60106, level 3 (no false positive) |
 
-"Before" reproduces the gap seen live on 2026-11-11: a 4769 whose client
-address holds an IPv4 is taken by the built-in level-0 rule 92651 and never
-reaches 100210/100212. "After", all three reach 100212 and the legitimate AES
+"Before" reproduces the gap seen live on 2026-11-11: the two samples whose
+client address holds an IPv4 produced no alert. The static analysis of the
+ruleset points to the built-in level-0 rule 92651 taking them before
+100210/100212 (see [roadmap item 3](../../roadmap.md)). This run does not record
+which rule took each event: a level-0 match writes no alert. "After", all three reach 100212 and the legitimate AES
 ticket stays out of the Kerberoasting chain. Every alert was decoded as
 `windows_eventchannel`.
 
