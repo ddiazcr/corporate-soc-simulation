@@ -102,7 +102,10 @@ also chains from 92651 (and from 60119, first-time-seen user), plus
 rule; validated with the real engine on 2026-11-15 (injected events: before, the
 `::ffff:192.168.56.10` and Kali-address samples produced no alert; after, all three
 reach 100212 and a legitimate AES ticket stays at 60106 —
-[evidence](evidence/engine-test-2026-11-15/)); **live re-validation from Kali pending**.
+[evidence](evidence/engine-test-2026-11-15/)). **Validated live on 2026-11-15**: a
+Kerberoasting request from Kali (`crojas`, Impacket `GetUserSPNs -request`) through
+the DC01 agent raised 100212 (level 12, RC4 `0x17`, client `::ffff:192.168.56.103`,
+agent 004) — [evidence](evidence/live-kerberoast-2026-11-15/). **Done.**
 
 ---
 
