@@ -96,7 +96,10 @@ via `::ffff:192.168.56.10` (seen live: honeytoken tickets from `::1` alerted, th
 same request from `::ffff:192.168.56.10` produced no alert at all). Fix: 100210
 also chains from 92651 (and from 60119, first-time-seen user), plus
 `rules/check_shadowing.py` to catch this class of problem. Status: fixed in the
-rule; **live re-validation from Kali pending**.
+rule; validated with the real engine on 2026-11-15 (injected events: before, the
+`::ffff:192.168.56.10` and Kali-address samples produced no alert; after, all three
+reach 100212 and a legitimate AES ticket stays at 60106 —
+[evidence](evidence/engine-test-2026-11-15/)); **live re-validation from Kali pending**.
 
 ---
 
