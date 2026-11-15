@@ -74,6 +74,20 @@ class EventFormatTests(unittest.TestCase):
         self.assertEqual(d.getElementsByTagName("EventRecordID")[0].firstChild.data, "9000000001")
 
 
+class ReadAlertsTests(unittest.TestCase):
+
+    def test_a_half_written_last_line_is_ignored_until_complete(self):
+        with tempfile.TemporaryDirectory() as d:
+            ruta = os.path.join(d, "alerts.json")
+            completa = json.dumps({"rule": {"id": "60106"}, "data": {"win": {"system": {"eventRecordID": "9001"}}}},
+                                  separators=(",", ":"))           # compact, as Wazuh writes it
+            with open(ruta, "w") as f:
+                f.write(completa + "\n" + completa.replace("9001", "9002")[:40])   # 2nd still being written
+            with mock.patch.object(et, "ALERTS", ruta):
+                vistos = et.resultado({"a": 9001, "b": 9002}, 0, espera=1.5)
+        self.assertEqual(set(vistos), {"a"})
+
+
 class RestoreTests(unittest.TestCase):
     """main() with the manager simulated: files in a temp dir, engine calls mocked."""
 

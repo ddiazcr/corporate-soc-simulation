@@ -136,10 +136,16 @@ def resultado(marcas, desde, espera=15):
     while time.time() < fin and len(vistos) < len(marcas):
         with open(ALERTS, encoding="utf-8", errors="replace") as f:
             f.seek(desde)
-            for linea in f:
-                for nombre, m in marcas.items():
-                    if f'"eventRecordID":"{m}"' in linea:
+            texto = f.read()
+        # Only complete lines: analysisd may be in the middle of writing the
+        # last one (2026-11-15: JSONDecodeError on a half-written alert).
+        for linea in texto.split("\n")[:-1]:
+            for nombre, m in marcas.items():
+                if nombre not in vistos and f'"eventRecordID":"{m}"' in linea:
+                    try:
                         vistos[nombre] = json.loads(linea)
+                    except ValueError:
+                        pass                      # read again on the next pass
         time.sleep(1)
     return vistos
 
