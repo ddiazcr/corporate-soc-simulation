@@ -52,7 +52,7 @@ import socket
 import subprocess
 import sys
 import time
-from xml.sax.saxutils import escape, quoteattr
+from xml.sax.saxutils import escape
 
 OSSEC = "/var/ossec"
 ALERTS = f"{OSSEC}/logs/alerts/alerts.json"
@@ -66,19 +66,27 @@ SIS_ELEM = [("eventID", "EventID"), ("version", "Version"), ("level", "Level"), 
 SIS_TAIL = [("channel", "Channel"), ("computer", "Computer")]
 
 
+def attr(v):
+    """XML attribute in single quotes, as Windows renders events. The decoder
+    gets the XML as a JSON string (cJSON_PrintUnformatted), where double
+    quotes become \\" and Wazuh's os_xml rejects Name=\\"...\\" ("Attribute
+    'Name' not followed by a \\" or '"). Found on the manager 2026-11-15."""
+    return "'" + escape(str(v), {"'": "&apos;"}) + "'"
+
+
 def a_xml(win, record_id, ip=None):
     s, ed = win["system"], dict(win["eventdata"])
     if ip:
         ed["ipAddress"], ed["ipPort"] = ip, "50123"
     x = ["<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>",
-         f"<Provider Name={quoteattr(s['providerName'])} Guid={quoteattr(s.get('providerGuid', ''))}/>"]
+         f"<Provider Name={attr(s['providerName'])} Guid={attr(s.get('providerGuid', ''))}/>"]
     x += [f"<{e}>{escape(s[k])}</{e}>" for k, e in SIS_ELEM if k in s]
-    x.append(f"<TimeCreated SystemTime={quoteattr(s.get('systemTime', ''))}/>")
+    x.append(f"<TimeCreated SystemTime={attr(s.get('systemTime', ''))}/>")
     x.append(f"<EventRecordID>{record_id}</EventRecordID><Correlation/>")
-    x.append(f"<Execution ProcessID={quoteattr(s.get('processID', '0'))} ThreadID={quoteattr(s.get('threadID', '0'))}/>")
+    x.append(f"<Execution ProcessID={attr(s.get('processID', '0'))} ThreadID={attr(s.get('threadID', '0'))}/>")
     x += [f"<{e}>{escape(s[k])}</{e}>" for k, e in SIS_TAIL if k in s]
     x.append("<Security/></System><EventData>")
-    x += [f"<Data Name={quoteattr(k[0].upper() + k[1:])}>{escape(v)}</Data>" for k, v in ed.items()]
+    x += [f"<Data Name={attr(k[0].upper() + k[1:])}>{escape(v)}</Data>" for k, v in ed.items()]
     x.append("</EventData></Event>")
     return json.dumps({"Message": s.get("message", ""), "Event": "".join(x)})
 

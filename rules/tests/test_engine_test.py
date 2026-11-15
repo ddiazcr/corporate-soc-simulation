@@ -8,6 +8,7 @@ Run from the repository root:
 """
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -43,6 +44,34 @@ class PassConditionTests(unittest.TestCase):
 
     def test_shadowed_network_sample_fails(self):
         self.assertFalse(et.cumple(dict(BIEN, **{"honeytoken-network": {"regla": None, "decoder": None, "eventID": None}})))
+
+
+class EventFormatTests(unittest.TestCase):
+    """The injected event must survive the trip the agent's events take: XML
+    inside a JSON string, re-printed by cJSON before os_xml parses it."""
+
+    WIN = {"system": {"providerName": "Microsoft-Windows-Security-Auditing", "providerGuid": "{5484}",
+                      "eventID": "4769", "keywords": "0x8020000000000000", "systemTime": "2026-11-11T06:52:05Z",
+                      "processID": "780", "threadID": "1", "channel": "Security", "computer": "DC01", "message": "m"},
+           "eventdata": {"serviceName": "svc_sql_backup", "ipAddress": "::1", "note": "it's \"x\""}}
+
+    def test_attributes_use_single_quotes_like_windows(self):
+        """Double-quoted attributes become \\" once printed as JSON and Wazuh's
+        os_xml rejects them; the decoder then drops the event without a log
+        line (seen on the manager 2026-11-15)."""
+        ev = json.loads(et.a_xml(self.WIN, 9000000001))["Event"]
+        etiquetas = re.findall(r"<[^>]+>", ev)
+        self.assertFalse([t for t in etiquetas if '"' in t], "double quote inside a tag")
+        self.assertIn("Name='Microsoft-Windows-Security-Auditing'", ev)
+
+    def test_event_is_well_formed_and_keeps_values(self):
+        import xml.dom.minidom as minidom
+        ev = json.loads(et.a_xml(self.WIN, 9000000001, ip="::ffff:192.168.56.103"))["Event"]
+        d = minidom.parseString(ev)
+        datos = {n.getAttribute("Name"): n.firstChild.data for n in d.getElementsByTagName("Data")}
+        self.assertEqual(datos["IpAddress"], "::ffff:192.168.56.103")
+        self.assertEqual(datos["Note"], "it's \"x\"")
+        self.assertEqual(d.getElementsByTagName("EventRecordID")[0].firstChild.data, "9000000001")
 
 
 class RestoreTests(unittest.TestCase):
