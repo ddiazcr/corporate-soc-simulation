@@ -1,8 +1,13 @@
 """
 Validate rules 100210/100212 with the real Wazuh engine, before and after
-deploying a new local_rules.xml. Runs ON THE MANAGER, as root:
+deploying a new version of the NIMBREK rules. Runs ON THE MANAGER, as root:
 
     sudo python3 run_engine_test.py /tmp/nimbrek/local_rules.xml
+
+The repository file is named local_rules.xml, but on the manager the rules may
+live in another file of etc/rules (in this lab: nimbrek_rules.xml). The file
+that is replaced is the one that defines the rule IDs of the new file, found
+before anything changes (see destino()).
 
 Why not wazuh-logtest: in Wazuh 4.9.2, Windows events are decoded by
 DecodeWinevt (src/analysisd/decoders/winevtchannel.c), which analysisd calls
@@ -17,6 +22,16 @@ What this does instead: it sends the event to analysisd's own input socket
 type the agent's events arrive as, so the real decoder and the loaded rules
 process it, and reads the result from alerts.json.
 
+0. Preflight (nothing is changed yet): every rule ID of the new file must be
+   defined in exactly one rule file of etc/rules, the target, and in no other
+   file of etc/rules or ruleset/rules. Otherwise installing it would leave
+   duplicated IDs, and Wazuh keeps only the first one it loads (warning 7612,
+   files in alphabetical order): the test would measure whichever copy wins.
+   Found on the manager 2026-11-15, when an earlier version of this script
+   wrote the rules to local_rules.xml next to nimbrek_rules.xml.
+   Then the manager is restarted with the rules as they are on disk, so
+   "before" measures those rules and not whatever an earlier, interrupted run
+   left loaded in memory.
 1. Samples: the latest 100212 alert (4769, svc_sql_backup, RC4, ipAddress ::1)
    and the latest AES 4769, both from this manager's alerts.json. The event is
    rebuilt as Windows XML from the alert's data.win fields.
@@ -29,8 +44,9 @@ process it, and reads the result from alerts.json.
      honeytoken-network   ipAddress ::ffff:192.168.56.103   (address edited: Kali)
      aes-legit            the captured AES ticket
    A sample taken by a level-0 rule writes no alert ("no alert").
-4. The new local_rules.xml is installed (backup kept), checked with
-   wazuh-analysisd -t, and the manager restarted. The samples are injected
+4. The new file replaces the target (backup kept), is checked with
+   wazuh-analysisd -t, and the manager restarted. After every restart,
+   ossec.log must not report duplicated rule IDs (7612). The samples are injected
    again ("after").
 5. Expected after: the three honeytoken samples end in 100212, and aes-legit
    produces an alert (positive evidence that the engine received and decoded
@@ -45,8 +61,11 @@ Injected events are real alerts on agent 000 (the manager), with
 eventRecordID 9xxxxxxxxx. Stop the AI feed while this runs.
 Results: printed and written to engine_test_results.json next to this script.
 """
+import glob
+import hashlib
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -56,7 +75,10 @@ from xml.sax.saxutils import escape
 
 OSSEC = "/var/ossec"
 ALERTS = f"{OSSEC}/logs/alerts/alerts.json"
-RULES = f"{OSSEC}/etc/rules/local_rules.xml"
+RULES_DIR = f"{OSSEC}/etc/rules"
+RULESET_DIR = f"{OSSEC}/ruleset/rules"
+RULES = None                     # target file, chosen by destino() before anything changes
+OSSEC_LOG = f"{OSSEC}/logs/ossec.log"
 QUEUE = f"{OSSEC}/queue/sockets/queue"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 HONEY = ("honeytoken-loopback", "honeytoken-dc-fqdn", "honeytoken-network")
@@ -128,6 +150,49 @@ class Inyector:
         s = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
         s.sendto(f"f:EventChannel:{payload}".encode(), QUEUE)
         s.close()
+
+
+def ids_de(ruta):
+    """Rule IDs a file defines (overwrite="yes" rules replace, they do not duplicate)."""
+    with open(ruta, encoding="utf-8", errors="replace") as f:
+        texto = re.sub(r"<!--.*?-->", "", f.read(), flags=re.S)
+    return {m.group(2) for m in re.finditer(r"<rule\b([^>]*?)\bid=\"(\d+)\"([^>]*)>", texto)
+            if 'overwrite="yes"' not in m.group(1) + m.group(3)}
+
+
+def destino(nuevas):
+    """The one file of etc/rules that holds the new file's rule IDs; exits on
+    any ambiguity before anything is changed."""
+    ids = ids_de(nuevas)
+    if not ids:
+        sys.exit(f"{nuevas} no define reglas.")
+    con = {}
+    for ruta in sorted(glob.glob(f"{RULES_DIR}/*.xml") + glob.glob(f"{RULESET_DIR}/*.xml")):
+        comun = ids & ids_de(ruta)
+        if comun:
+            con[ruta] = comun
+    locales = [r for r in con if os.path.dirname(r) == RULES_DIR]
+    if len(con) != 1 or len(locales) != 1:
+        detalle = "; ".join(f"{os.path.basename(r)}: {sorted(c)[:6]}" for r, c in con.items()) or "ninguno"
+        sys.exit("No se puede elegir un único archivo a reemplazar sin dejar IDs duplicados "
+                 f"(archivos con IDs de las reglas nuevas: {detalle}). No se cambió nada.")
+    return locales[0]
+
+
+def sha256(ruta):
+    with open(ruta, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
+def avisos_duplicados(desde):
+    """7612 warnings (duplicated rule ID) written to ossec.log after offset `desde`."""
+    with open(OSSEC_LOG, encoding="utf-8", errors="replace") as f:
+        f.seek(desde)
+        return [l.strip() for l in f if "(7612)" in l]
+
+
+def tam_log():
+    return os.path.getsize(OSSEC_LOG)
 
 
 def resultado(marcas, desde, espera=15):
@@ -241,15 +306,26 @@ def reiniciar():
 
 
 def main():
+    global RULES
     if os.geteuid() != 0 or len(sys.argv) != 2:
         sys.exit(__doc__)
+    RULES = destino(sys.argv[1])
+    print(f"== Archivo a reemplazar: {RULES} (sha256 {sha256(RULES)[:16]}); sin IDs duplicados")
     honey, aes = muestras()
     inj = Inyector()
+    print("== Reiniciando el manager con las reglas actuales del disco (base del 'antes')...")
+    log0 = tam_log()
+    if not reiniciar() or not operativo(inj, aes):
+        sys.exit("El manager no quedó operativo con las reglas actuales; no se cambió nada.")
+    dup = avisos_duplicados(log0)
+    if dup:
+        sys.exit("ossec.log reporta IDs duplicados con las reglas actuales; no se cambió nada:\n  " + "\n  ".join(dup[:5]))
     ok, nota = fidelidad(inj, honey)
     print(f"== Fidelidad de la reconstrucción: {'OK' if ok else 'FALLA'} ({nota})")
     if not ok:
         sys.exit("La reconstrucción no reproduce el evento original; no se sigue.")
-    print("== Antes (reglas instaladas ahora)")
+    sha_antes = sha256(RULES)
+    print("== Antes (reglas del disco, recién cargadas)")
     antes = correr("antes", inj, honey, aes)
     respaldo = f"{RULES}.bak-{time.strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(RULES, respaldo)
@@ -259,10 +335,14 @@ def main():
         shutil.chown(RULES, "wazuh", "wazuh")
         os.chmod(RULES, 0o660)
         print(f"== Reglas nuevas instaladas (respaldo {respaldo}); reiniciando el manager...")
+        log1 = tam_log()
         if not reiniciar():
             raise RuntimeError("el manager no reinició con las reglas nuevas")
         if not operativo(inj, aes):
             raise RuntimeError("el motor no procesó el evento canario tras el reinicio")
+        dup = avisos_duplicados(log1)
+        if dup:
+            raise RuntimeError(f"IDs de regla duplicados tras instalar: {dup[:3]}")
         print("   motor listo (evento canario alertado)")
         print("== Después")
         despues = correr("después", inj, honey, aes)
@@ -291,6 +371,7 @@ def main():
                   "'systemctl status wazuh-manager' y /var/ossec/logs/ossec.log")
     out = {"momento_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "fidelidad": nota,
            "instalada": instalada, "error": error, "manager_recuperado": recuperado,
+           "archivo": RULES, "sha256_antes": sha_antes, "sha256_nuevas": sha256(sys.argv[1]),
            "respaldo": respaldo, "antes": antes, "despues": despues,
            "muestra_honeytoken": a_xml(honey, 0), "muestra_aes": a_xml(aes, 0)}
     ruta = os.path.join(AQUI, "engine_test_results.json")

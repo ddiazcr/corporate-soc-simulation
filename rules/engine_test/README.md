@@ -1,8 +1,17 @@
 # Engine test for rules 100210 / 100212
 
 `run_engine_test.py` checks, on the real manager, which rule the engine
-applies to a 4769 before and after a new `local_rules.xml` is installed, and
-rolls back if the result is not the expected one. See the script's docstring
+applies to a 4769 before and after a new version of the NIMBREK rules is
+installed, and rolls back if the result is not the expected one.
+
+The repository file is `rules/local_rules.xml`, but the manager may keep these
+rules in another file of `etc/rules` (in this lab, `nimbrek_rules.xml`, next
+to a `local_rules.xml` that holds the Suricata rule 100101). The script
+replaces the one file that defines the new rule IDs, and stops without
+changing anything if those IDs appear in more than one file: Wazuh keeps only
+the first copy it loads (warning 7612), so the test would measure whichever
+copy wins. Before "before", it restarts the manager with the rules on disk, so
+"before" never measures rules an interrupted earlier run left in memory. See the script's docstring
 for the method and why `wazuh-logtest` cannot test eventchannel events in
 4.9.2.
 

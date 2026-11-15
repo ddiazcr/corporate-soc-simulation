@@ -88,6 +88,69 @@ class ReadAlertsTests(unittest.TestCase):
         self.assertEqual(set(vistos), {"a"})
 
 
+class TargetTests(unittest.TestCase):
+    """destino(): which file is replaced, decided before anything changes."""
+
+    REGLA = '<group name="g,"><rule id="{}" level="3"><if_sid>1</if_sid><description>x</description></rule></group>\n'
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.etc = os.path.join(self.tmp.name, "etc")
+        self.ruleset = os.path.join(self.tmp.name, "ruleset")
+        os.makedirs(self.etc)
+        os.makedirs(self.ruleset)
+        self.nuevas = self._w(self.tmp.name, "nuevas.xml", "100210", "100212")
+        self.p = [mock.patch.object(et, "RULES_DIR", self.etc), mock.patch.object(et, "RULESET_DIR", self.ruleset)]
+        for p in self.p:
+            p.start()
+
+    def tearDown(self):
+        for p in self.p:
+            p.stop()
+        self.tmp.cleanup()
+
+    def _w(self, d, nombre, *ids, extra=""):
+        ruta = os.path.join(d, nombre)
+        with open(ruta, "w") as f:
+            f.write(extra + "".join(self.REGLA.format(i) for i in ids))
+        return ruta
+
+    def test_the_file_that_defines_the_ids_is_the_target(self):
+        """The lab layout: NIMBREK rules in nimbrek_rules.xml, Suricata rule in local_rules.xml."""
+        self._w(self.etc, "local_rules.xml", "100001", "100101")
+        objetivo = self._w(self.etc, "nimbrek_rules.xml", "100210", "100212")
+        self.assertEqual(et.destino(self.nuevas), objetivo)
+
+    def test_ids_in_two_files_stop_before_any_change(self):
+        """The state an earlier version of the script left on 2026-11-15."""
+        self._w(self.etc, "local_rules.xml", "100101", "100210", "100212")
+        self._w(self.etc, "nimbrek_rules.xml", "100210", "100212")
+        with self.assertRaises(SystemExit) as cm:
+            et.destino(self.nuevas)
+        self.assertIn("No se cambió nada", str(cm.exception))
+
+    def test_an_id_also_in_the_built_in_ruleset_stops(self):
+        self._w(self.etc, "nimbrek_rules.xml", "100210", "100212")
+        self._w(self.ruleset, "0999-x.xml", "100212")
+        with self.assertRaises(SystemExit):
+            et.destino(self.nuevas)
+
+    def test_no_file_with_the_ids_stops(self):
+        self._w(self.etc, "local_rules.xml", "100101")
+        with self.assertRaises(SystemExit):
+            et.destino(self.nuevas)
+
+    def test_commented_and_overwrite_rules_are_not_definitions(self):
+        ruta = self._w(self.tmp.name, "c.xml", "100230",
+                       extra='<!-- <rule id="100210" level="3"> -->\n<rule id="60106" level="3" overwrite="yes"></rule>\n')
+        self.assertEqual(et.ids_de(ruta), {"100230"})
+
+    def test_backup_files_are_not_rule_files(self):
+        objetivo = self._w(self.etc, "nimbrek_rules.xml", "100210", "100212")
+        self._w(self.etc, "local_rules.xml.bak-20261111-183016", "100210")
+        self.assertEqual(et.destino(self.nuevas), objetivo)
+
+
 class RestoreTests(unittest.TestCase):
     """main() with the manager simulated: files in a temp dir, engine calls mocked."""
 
@@ -101,7 +164,9 @@ class RestoreTests(unittest.TestCase):
         with open(self.nuevas, "w") as f:
             f.write("NUEVAS")
         self.patches = [
-            mock.patch.object(et, "RULES", self.rules),
+            mock.patch.object(et, "destino", return_value=self.rules),
+            mock.patch.object(et, "tam_log", return_value=0),
+            mock.patch.object(et, "avisos_duplicados", return_value=[]),
             mock.patch.object(et, "AQUI", d),
             mock.patch.object(et, "muestras", return_value=({}, {})),
             mock.patch.object(et, "fidelidad", return_value=(True, "ok")),
@@ -118,7 +183,7 @@ class RestoreTests(unittest.TestCase):
             p.stop()
         self.tmp.cleanup()
 
-    def _main(self, despues=None, error=None, reinicio=(True, True), operativo=True):
+    def _main(self, despues=None, error=None, reinicio=(True, True, True), operativo=True):
         llamadas = {"n": 0}
 
         def correr(etiqueta, *a):
@@ -142,13 +207,16 @@ class RestoreTests(unittest.TestCase):
         return codigo, instaladas, res
 
     def _operativo(self, final):
-        # 1st call: readiness after installing the new rules (ready, unless the
-        # test says the engine never came back); 2nd: check after restoring.
+        # 1st call: baseline restart with the rules on disk; 2nd: readiness after
+        # installing the new rules (ready, unless the test says the engine never
+        # came back); 3rd: check after restoring.
         llamadas = []
 
         def f(*a, **k):
             llamadas.append(1)
-            return getattr(self, "listo_tras_instalar", True) if len(llamadas) == 1 else final
+            if len(llamadas) == 1:
+                return True
+            return getattr(self, "listo_tras_instalar", True) if len(llamadas) == 2 else final
         return f
 
     def test_engine_not_ready_after_install_restores(self):
@@ -175,13 +243,15 @@ class RestoreTests(unittest.TestCase):
         self.assertEqual(instaladas, "VIEJAS")
 
     def test_restart_failure_with_new_rules_restores(self):
-        codigo, instaladas, res = self._main(reinicio=(False, True))
+        codigo, instaladas, res = self._main(reinicio=(True, False, True))
         self.assertEqual((instaladas, res["manager_recuperado"]), ("VIEJAS", True))
 
     def test_ctrl_c_during_the_restore_still_leaves_the_old_rules_and_says_so(self):
         def reinicio_falla_luego_ctrl_c(*a, **k):
             reinicio_falla_luego_ctrl_c.n += 1
-            if reinicio_falla_luego_ctrl_c.n == 2:
+            if reinicio_falla_luego_ctrl_c.n == 1:
+                return True                       # baseline restart
+            if reinicio_falla_luego_ctrl_c.n == 3:
                 raise KeyboardInterrupt()
             return False
         reinicio_falla_luego_ctrl_c.n = 0
@@ -195,6 +265,29 @@ class RestoreTests(unittest.TestCase):
             res = json.load(f)
         self.assertFalse(res["manager_recuperado"])
         self.assertIn("durante la restauración", res["error"])
+
+    def test_duplicated_ids_after_install_restore_the_previous_rules(self):
+        with mock.patch.object(et, "avisos_duplicados", side_effect=[[], ["WARNING: (7612): Rule ID '100210' is duplicated."]]):
+            codigo, instaladas, res = self._main(despues=BIEN)
+        self.assertEqual((codigo, instaladas, res["instalada"]), (1, "VIEJAS", False))
+        self.assertIn("duplicados", res["error"])
+
+    def test_before_is_measured_only_after_a_restart_with_the_rules_on_disk(self):
+        orden = []
+        with mock.patch.object(et, "correr", side_effect=lambda etiqueta, *a: orden.append(etiqueta) or BIEN), \
+             mock.patch.object(et, "reiniciar", side_effect=lambda: orden.append("reinicio") or True), \
+             mock.patch.object(et, "operativo", return_value=True):
+            et.main()
+        self.assertEqual(orden[:2], ["reinicio", "antes"])
+
+    def test_baseline_restart_failure_changes_nothing(self):
+        with mock.patch.object(et, "reiniciar", return_value=False), \
+             mock.patch.object(et, "correr") as correr:
+            with self.assertRaises(SystemExit):
+                et.main()
+        correr.assert_not_called()
+        with open(self.rules) as f:
+            self.assertEqual(f.read(), "VIEJAS")
 
     def test_recovery_is_not_claimed_when_the_manager_does_not_come_back(self):
         codigo, instaladas, res = self._main(despues=dict(BIEN, **{"aes-legit": r("100210")}), operativo=False)
