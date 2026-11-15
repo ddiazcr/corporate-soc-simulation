@@ -116,7 +116,7 @@ class RestoreTests(unittest.TestCase):
 
         with mock.patch.object(et, "correr", side_effect=correr), \
              mock.patch.object(et, "reiniciar", side_effect=list(reinicio)), \
-             mock.patch.object(et, "operativo", return_value=operativo):
+             mock.patch.object(et, "operativo", side_effect=self._operativo(operativo)):
             try:
                 codigo = et.main()
             except BaseException as e:
@@ -126,6 +126,22 @@ class RestoreTests(unittest.TestCase):
         with open(os.path.join(self.tmp.name, "engine_test_results.json")) as f:
             res = json.load(f)
         return codigo, instaladas, res
+
+    def _operativo(self, final):
+        # 1st call: readiness after installing the new rules (ready, unless the
+        # test says the engine never came back); 2nd: check after restoring.
+        llamadas = []
+
+        def f(*a, **k):
+            llamadas.append(1)
+            return getattr(self, "listo_tras_instalar", True) if len(llamadas) == 1 else final
+        return f
+
+    def test_engine_not_ready_after_install_restores(self):
+        self.listo_tras_instalar = False
+        codigo, instaladas, res = self._main(despues=BIEN)
+        self.assertEqual(instaladas, "VIEJAS")
+        self.assertIn("canario", res["error"])
 
     def test_pass_keeps_the_new_rules(self):
         codigo, instaladas, res = self._main(despues=BIEN)

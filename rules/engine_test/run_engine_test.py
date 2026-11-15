@@ -193,14 +193,26 @@ def cumple(res):
             and res["aes-legit"]["regla"] not in ("100210", "100211", "100212"))
 
 
-def operativo(inj, aes):
-    """Manager working: service active and an injected AES event alerts."""
-    if subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"]).returncode != 0:
-        return False
-    m = inj.marca()
-    desde = os.path.getsize(ALERTS)
-    inj.enviar(a_xml(aes, m))
-    return "x" in resultado({"x": m}, desde, espera=30)
+def operativo(inj, aes, timeout=300):
+    """Manager working: service active and an injected canary (the AES sample,
+    which alerts as 60106 with any version of local_rules.xml) alerts.
+    Re-sent every 10 s: after a restart analysisd opens its socket before it
+    has loaded the ruleset, and events sent in that window are lost
+    (2026-11-15: a fixed 20 s wait was not enough)."""
+    fin = time.time() + timeout
+    while time.time() < fin:
+        if subprocess.run(["systemctl", "is-active", "--quiet", "wazuh-manager"]).returncode == 0:
+            m = inj.marca()
+            desde = os.path.getsize(ALERTS)
+            try:
+                inj.enviar(a_xml(aes, m))
+            except OSError:
+                pass                           # socket not there yet
+            else:
+                if "x" in resultado({"x": m}, desde, espera=10):
+                    return True
+        time.sleep(2)
+    return False
 
 
 def reiniciar():
@@ -213,8 +225,7 @@ def reiniciar():
     fin = time.time() + 180
     while time.time() < fin and not os.path.exists(QUEUE):
         time.sleep(2)
-    time.sleep(20)  # let analysisd load the ruleset and open its queue
-    return os.path.exists(QUEUE)
+    return os.path.exists(QUEUE)          # readiness is checked with a canary (operativo)
 
 
 def main():
@@ -238,6 +249,9 @@ def main():
         print(f"== Reglas nuevas instaladas (respaldo {respaldo}); reiniciando el manager...")
         if not reiniciar():
             raise RuntimeError("el manager no reinició con las reglas nuevas")
+        if not operativo(inj, aes):
+            raise RuntimeError("el motor no procesó el evento canario tras el reinicio")
+        print("   motor listo (evento canario alertado)")
         print("== Después")
         despues = correr("después", inj, honey, aes)
         instalada = cumple(despues)
