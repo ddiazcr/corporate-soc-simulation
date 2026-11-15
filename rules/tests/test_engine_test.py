@@ -82,7 +82,7 @@ class ReadAlertsTests(unittest.TestCase):
             completa = json.dumps({"rule": {"id": "60106"}, "data": {"win": {"system": {"eventRecordID": "9001"}}}},
                                   separators=(",", ":"))           # compact, as Wazuh writes it
             with open(ruta, "w") as f:
-                f.write(completa + "\n" + completa.replace("9001", "9002")[:-5])  # 2nd: marker written, rest not yet
+                f.write(completa + "\n" + completa.replace("9001", "9002")[:-3])  # 2nd: marker written, rest not yet
             with mock.patch.object(et, "ALERTS", ruta):
                 vistos = et.resultado({"a": 9001, "b": 9002}, 0, espera=1.5)
         self.assertEqual(set(vistos), {"a"})
