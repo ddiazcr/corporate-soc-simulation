@@ -164,6 +164,24 @@ class RestoreTests(unittest.TestCase):
         codigo, instaladas, res = self._main(reinicio=(False, True))
         self.assertEqual((instaladas, res["manager_recuperado"]), ("VIEJAS", True))
 
+    def test_ctrl_c_during_the_restore_still_leaves_the_old_rules_and_says_so(self):
+        def reinicio_falla_luego_ctrl_c(*a, **k):
+            reinicio_falla_luego_ctrl_c.n += 1
+            if reinicio_falla_luego_ctrl_c.n == 2:
+                raise KeyboardInterrupt()
+            return False
+        reinicio_falla_luego_ctrl_c.n = 0
+        with mock.patch.object(et, "correr", return_value=BIEN), \
+             mock.patch.object(et, "reiniciar", side_effect=reinicio_falla_luego_ctrl_c), \
+             mock.patch.object(et, "operativo", return_value=True):
+            et.main()
+        with open(self.rules) as f:
+            self.assertEqual(f.read(), "VIEJAS")
+        with open(os.path.join(self.tmp.name, "engine_test_results.json")) as f:
+            res = json.load(f)
+        self.assertFalse(res["manager_recuperado"])
+        self.assertIn("durante la restauración", res["error"])
+
     def test_recovery_is_not_claimed_when_the_manager_does_not_come_back(self):
         codigo, instaladas, res = self._main(despues=dict(BIEN, **{"aes-legit": r("100210")}), operativo=False)
         self.assertEqual((instaladas, res["manager_recuperado"]), ("VIEJAS", False))

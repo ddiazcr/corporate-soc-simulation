@@ -60,6 +60,7 @@ RULES = f"{OSSEC}/etc/rules/local_rules.xml"
 QUEUE = f"{OSSEC}/queue/sockets/queue"
 AQUI = os.path.dirname(os.path.abspath(__file__))
 HONEY = ("honeytoken-loopback", "honeytoken-dc-fqdn", "honeytoken-network")
+RESTART_TIMEOUT_S = 900
 # System fields as XML elements (data.win.system key -> element); others are attributes.
 SIS_ELEM = [("eventID", "EventID"), ("version", "Version"), ("level", "Level"), ("task", "Task"),
             ("opcode", "Opcode"), ("keywords", "Keywords")]
@@ -193,7 +194,7 @@ def cumple(res):
             and res["aes-legit"]["regla"] not in ("100210", "100211", "100212"))
 
 
-def operativo(inj, aes, timeout=300):
+def operativo(inj, aes, timeout=600):
     """Manager working: service active and an injected canary (the AES sample,
     which alerts as 60106 with any version of local_rules.xml) alerts.
     Re-sent every 10 s: after a restart analysisd opens its socket before it
@@ -220,7 +221,12 @@ def reiniciar():
     if t.returncode != 0:
         print(t.stdout[-800:], t.stderr[-800:])
         return False
-    if subprocess.run(["systemctl", "restart", "wazuh-manager"]).returncode != 0:
+    # On this lab VM a restart takes several minutes (2026-11-15); bounded, not endless.
+    try:
+        if subprocess.run(["systemctl", "restart", "wazuh-manager"], timeout=RESTART_TIMEOUT_S).returncode != 0:
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"   !! 'systemctl restart wazuh-manager' no terminó en {RESTART_TIMEOUT_S // 60} min")
         return False
     fin = time.time() + 180
     while time.time() < fin and not os.path.exists(QUEUE):
@@ -266,11 +272,17 @@ def main():
             shutil.copyfile(respaldo, RULES)
             shutil.chown(RULES, "wazuh", "wazuh")
             os.chmod(RULES, 0o660)
-            recuperado = reiniciar() and operativo(inj, aes)
+            print(f"   reglas anteriores copiadas de vuelta ({respaldo}); reiniciando el manager...")
+            try:
+                recuperado = reiniciar() and operativo(inj, aes)
+            except BaseException as e:      # Ctrl+C during the restore itself
+                recuperado = False
+                error = (error or "") + f" | durante la restauración: {e!r}"
             print("   reglas anteriores restauradas y manager operativo (evento de control alertado)"
                   if recuperado else
-                  f"   !! reglas restauradas desde {respaldo}, pero el manager NO quedó operativo: "
-                  "revisar 'systemctl status wazuh-manager' y /var/ossec/logs/ossec.log")
+                  "   !! el archivo de reglas YA es el anterior, pero no se confirmó que el manager quedó "
+                  "operativo: correr 'sudo systemctl restart wazuh-manager' y revisar "
+                  "'systemctl status wazuh-manager' y /var/ossec/logs/ossec.log")
     out = {"momento_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "fidelidad": nota,
            "instalada": instalada, "error": error, "manager_recuperado": recuperado,
            "respaldo": respaldo, "antes": antes, "despues": despues,
