@@ -508,8 +508,9 @@ def main():
                   f"    ssh -o BatchMode=yes {valor('--ssh')} \"echo ok\"", file=sys.stderr)
         codigo_salida = EXIT_STREAM_LOST
     finally:
-        # Each step runs even if the one before it fails; the first error is
-        # raised after all of them.
+        # Each step runs even if the one before it fails. If several fail,
+        # Python raises the last error and keeps the earlier one as its
+        # __context__.
         try:
             # Voluntary stop: closing the generator stops and reaps ssh.
             if hasattr(fuente, "close"):
