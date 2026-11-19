@@ -753,6 +753,7 @@ def main():
                   f"(costo ${e.metricas.get('costo_usd')}, stop_reason={e.metricas.get('stop_reason')}). "
                   f"Costo acumulado ${round(costo, 6)}. No hay {EVAL_RESULTS} de esta corrida "
                   f"(el de corridas anteriores se borró al iniciar).")
+            conn.close()   # an open handle keeps casos_ad.db locked on Windows
             sys.exit(EXIT_AUDITORIA)
         met = res[1] if isinstance(res, tuple) else None
         if met and met.get("latencia_s"):  # every model call, accepted or rejected

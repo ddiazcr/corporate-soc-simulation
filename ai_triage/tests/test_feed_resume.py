@@ -6,6 +6,7 @@ decision row for every case the feed reaches.
 Run from the ai_triage folder:
     python -m unittest discover -s tests -v
 """
+import io
 import json
 import os
 import selectors
@@ -15,6 +16,7 @@ import sys
 import tempfile
 import time
 import unittest
+from contextlib import closing
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -175,7 +177,7 @@ class MainCheckpointTests(unittest.TestCase):
         return wazuh_feed.main()
 
     def _db(self):
-        return sqlite3.connect("casos_ad.db")
+        return closing(sqlite3.connect("casos_ad.db"))   # `with conn:` alone does not close it
 
     def test_resumes_from_the_last_handled_alert_and_skips_it_on_replay(self):
         self.lineas = ["@7:100 " + alerta(T[2], "A")]
@@ -261,7 +263,7 @@ class InterruptedReviewTests(unittest.TestCase):
         triage.notificar = corte
         sys.argv = ["wazuh_feed.py", "--ssh", "lab@192.168.56.102"]
         wazuh_feed.main()
-        with sqlite3.connect("casos_ad.db") as c:
+        with closing(sqlite3.connect("casos_ad.db")) as c:
             (caso,), = c.execute("SELECT id FROM casos").fetchall()
             self.assertEqual(c.execute("SELECT COUNT(*) FROM decisiones").fetchone()[0], 0)
 
@@ -274,7 +276,7 @@ class InterruptedReviewTests(unittest.TestCase):
             return orig_sol(conn, caso_id, analisis, entrada=lambda *_: "a", analista=analista)
         triage.solicitar_aprobacion = solicitar
         wazuh_feed.main()                  # restart: same alert replayed
-        with sqlite3.connect("casos_ad.db") as c:
+        with closing(sqlite3.connect("casos_ad.db")) as c:
             self.assertEqual(c.execute("SELECT COUNT(*) FROM casos").fetchone()[0], 1)          # merged, not duplicated
             self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "approved")])
             self.assertEqual(c.execute("SELECT caso_id FROM feed_procesadas WHERE wazuh_id='A'").fetchone()[0], caso)
@@ -286,8 +288,13 @@ class InterruptedReviewTests(unittest.TestCase):
         sys.argv = ["wazuh_feed.py", "--ssh", "lab@192.168.56.102"]
         wazuh_feed.main()
         triage.notificar = self.orig[1]
-        wazuh_feed.main()                  # stdin is not a TTY under unittest -> 'pending'
-        with sqlite3.connect("casos_ad.db") as c:
+        stdin = sys.stdin
+        sys.stdin = io.StringIO("")        # no terminal, also when run from an interactive console
+        try:
+            wazuh_feed.main()              # -> 'pending'
+        finally:
+            sys.stdin = stdin
+        with closing(sqlite3.connect("casos_ad.db")) as c:
             (caso,), = c.execute("SELECT id FROM casos").fetchall()
             self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "pending")])
 
@@ -304,7 +311,7 @@ class InterruptedReviewTests(unittest.TestCase):
         triage.solicitar_aprobacion = lambda conn, caso_id, analisis, entrada=input, analista="analista": \
             orig_sol(conn, caso_id, analisis, entrada=lambda *_: "r", analista=analista)
         wazuh_feed.main()
-        with sqlite3.connect("casos_ad.db") as c:
+        with closing(sqlite3.connect("casos_ad.db")) as c:
             (caso,), = c.execute("SELECT id FROM casos").fetchall()                      # still one case
             self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "rejected")])
             self.assertEqual(c.execute("SELECT caso_id, estado FROM feed_procesadas WHERE wazuh_id='C'").fetchone(),
@@ -360,7 +367,7 @@ class LinkAtomicityTests(unittest.TestCase):
         return wazuh_feed.main()
 
     def _db(self):
-        return sqlite3.connect("casos_ad.db")
+        return closing(sqlite3.connect("casos_ad.db"))   # `with conn:` alone does not close it
 
     def test_new_case_link_failure_rolls_back_and_no_dedup_restart_opens_one_case(self):
         self.lineas = ["@7:50 #start", "@7:100 " + alerta(T[1], "N")]
@@ -457,7 +464,7 @@ class FirstStartRealFollowerTests(unittest.TestCase):
 
     def _db(self, sql):
         try:
-            with sqlite3.connect("casos_ad.db") as c:
+            with closing(sqlite3.connect("casos_ad.db")) as c:
                 return c.execute(sql).fetchall()
         except sqlite3.Error:
             return []

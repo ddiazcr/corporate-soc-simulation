@@ -511,16 +511,20 @@ def main():
         # Voluntary stop: closing the generator stops and reaps ssh.
         if hasattr(fuente, "close"):
             fuente.close()
-        if manager:
-            # Lines skipped since the last alert are not read again.
-            guardar_cursor(conn, manager, atendida)
+        try:
+            if manager:
+                # Lines skipped since the last alert are not read again.
+                guardar_cursor(conn, manager, atendida)
+        finally:
+            # Also on an unexpected error: an open handle keeps casos_ad.db
+            # locked on Windows.
+            if conn:
+                conn.close()
 
     if salida:
         with open(salida, "w", encoding="utf-8") as f:
             json.dump(convertidas, f, ensure_ascii=False, indent=2)
         print(f"{len(convertidas)} alertas convertidas -> {salida}")
-    if conn:
-        conn.close()
     return codigo_salida
 
 
