@@ -142,7 +142,7 @@ Unit and engine tests are done for each change below; this table tracks the
 | Change | Live validation | Status | Evidence |
 |---|---|---|---|
 | [PR #11](https://github.com/ddiazcr/corporate-soc-simulation/pull/11) — Kerberoasting rule shadowed by 92651 | Kerberoasting from Kali through the DC01 agent raises 100212 | ✅ Done 2026-11-15 (agent 004, record 256462, RC4 `0x17`) | [live detection](evidence/live-kerberoast-2026-11-15/) · [engine before/after](evidence/engine-test-2026-11-15/) (published with #11) |
-| [PR #12](https://github.com/ddiazcr/corporate-soc-simulation/pull/12) — feed resumes after a stop | Stop the feed, fire the honeytoken during the pause, restart → the same Wazuh alert id is linked to its case and decision in SQLite | ⏳ Pending (code: case and link in one transaction, `f296fd0`) | — |
+| [PR #12](https://github.com/ddiazcr/corporate-soc-simulation/pull/12) — feed resumes after a stop | Stop the feed, fire the honeytoken during the pause, restart → the same Wazuh alert id is linked to its case and decision in SQLite | ✅ Done 2026-11-18 at `913e768`: alert `1795058621.1289840` written during the pause was read on restart; a stop at the approval prompt resumed on the same case; 1 case, decision `approved`, link `atendida` | [live resume](evidence/live-resume-2026-11-18/) |
 | [PR #10](https://github.com/ddiazcr/corporate-soc-simulation/pull/10) — approval gate on Windows | `a → approved`, `r → rejected`, `s → skipped`, each row in `decisiones` linked to its case | ⏳ Pending (merged; unit tests only) | — |
 
 ## Item 4 — Offline investigation with Hayabusa

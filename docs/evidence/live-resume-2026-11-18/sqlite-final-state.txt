@@ -1,0 +1,7 @@
+feed_procesadas: [('192.168.56.102', '1795058621.1289840', '23742fbbbf29b189-a8c56acd', 'atendida', '2026-11-19T03:32:29.567685+00:00')]
+casos para esta alerta (por vinculo): 1
+caso: [('23742fbbbf29b189-a8c56acd', '100212', 1, 'high', 'escalate_tier2', 'analizado', '2026-11-19T03:28:54.800728+00:00')]
+decisiones del caso: [(66, '23742fbbbf29b189-a8c56acd', 'escalate_tier2', 'approved', 'analista', '2026-11-19T03:32:29.560595+00:00')]
+feed_cursor: [('192.168.56.102', 945752, 937579, '2026-11-19T03:33:18.021693+00:00')]
+casos nuevos desde la linea base: [('23742fbbbf29b189-a8c56acd', '100212', '2026-11-19T03:28:54.800728+00:00')]
+casos: 66 | decisiones: 66
