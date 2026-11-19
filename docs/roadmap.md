@@ -151,7 +151,11 @@ Unit and engine tests are done for each change below; this table tracks the
 timeline around it with Hayabusa, and write what the analyst concludes and what
 must be verified before escalating.
 
-**Status:** prepared — export script, correlation script (tested on synthetic
-data) and report skeleton. The DC01 EVTX has not been exported yet; the report's
-timeline and conclusion stay empty until it is.
-[Investigation](investigations/kerberoast-honeytoken-2026-11-15/)
+**Status (2026-11-18): analysed.** DC01 Security log exported and hashed on the
+DC; Hayabusa 4.4.0 timeline; the alert matches raw record 256462 on all 14
+compared fields. Conclusion: true positive — Kerberoasting of the honeytoken
+from 192.168.56.103, preceded by wrong-password attempts and directory reads,
+with `crojas` used after an `Administrator` password reset. Open: operator
+confirmation of that reset.
+[Investigation](investigations/kerberoast-honeytoken-2026-11-15/) ·
+[evidence](evidence/offline-kerberoast-2026-11-15/)

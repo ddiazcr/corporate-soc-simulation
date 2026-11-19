@@ -103,6 +103,30 @@ class CorrelateTests(unittest.TestCase):
         self.assertIn("failures in the window: 2; from 192.168.56.103: 2", texto)
         self.assertIn("Successful NTLM network logons (4624) from 192.168.56.103: 1 (accounts: crojas)", texto)
 
+    def test_hayabusa_only_records_tied_by_account_or_session_join_the_timeline(self):
+        filas = [
+            {"timestamp": "2026-11-15T21:30:31.972Z", "ruletitle": "Password Reset By Admin", "level": "med",
+             "eventid": 4724, "recordid": 256272,
+             "details": {"SubjectUserName": "Administrator", "TargetUserName": "crojas", "SubjectLogonId": "0x9f14e"}},
+            {"timestamp": "2026-11-15T21:37:36.259Z", "ruletitle": "Potential AD User Enumeration", "level": "med",
+             "eventid": 4662, "recordid": 256460, "details": {"User": "other", "LID": "0x39e0f5"}},
+            {"timestamp": "2026-11-15T21:37:36.300Z", "ruletitle": "Unrelated", "level": "info",
+             "eventid": 4662, "recordid": 256499, "details": {"User": "svc_backup", "LID": "0x111"}},
+        ]
+        hb = {"256272": ["med · Password Reset By Admin"], "256460": ["med · Potential AD User Enumeration"],
+              "256499": ["info · Unrelated"]}
+        eventos = [dict(e) for e in EVENTOS]
+        eventos[-2] = dict(eventos[-2], EventData=dict(eventos[-2]["EventData"], TargetLogonId="0x39e0f5"))
+        texto, _ = c.informe(alerta(), eventos, (hb, filas), 10)
+        self.assertIn("| 256272 | 4724 | Administrator → crojas |", texto)   # tied by account (crojas)
+        self.assertIn("256462 **← alert**", texto)                            # alert marker survives
+        self.assertIn("Hayabusa detection on the alerted record: none", texto)
+        self.assertIn("| 256460 | 4662 | other |", texto)                     # tied by logon session
+        self.assertNotIn("Unrelated", texto)
+        self.assertIn("Plus 2 record(s) only Hayabusa holds", texto)
+        orden = [texto.index(x) for x in ("256440", "256272", "256445", "256460", "256462 **")]
+        self.assertEqual(orden, sorted(orden))                                # merged in time order
+
     def test_account_base_name(self):
         self.assertEqual({c.base_cuenta(n) for n in ("crojas@LAB.LOCAL", "LAB\\crojas", "CROJAS")}, {"crojas"})
 
@@ -113,10 +137,11 @@ class CorrelateTests(unittest.TestCase):
             f.write("not json\n")
             f.write(json.dumps({"recordid": "-", "ruletitle": "correlation"}) + "\n")
         try:
-            hb = c.leer_hayabusa(f.name)
+            hb, filas = c.leer_hayabusa(f.name)
         finally:
             os.unlink(f.name)
         self.assertEqual(hb, {"256462": ["med · Kerberoasting Activity"]})
+        self.assertEqual(len(filas), 2)                        # correlation row kept, not indexed
         texto, _ = c.informe(alerta(), EVENTOS, hb, 10)
         self.assertIn("Hayabusa detection on the alerted record: med · Kerberoasting Activity", texto)
         texto, _ = c.informe(alerta(), EVENTOS, {}, 10)

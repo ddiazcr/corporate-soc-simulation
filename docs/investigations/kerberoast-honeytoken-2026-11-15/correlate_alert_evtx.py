@@ -57,8 +57,10 @@ def hora(texto):
 
 
 def leer_hayabusa(ruta):
-    """RecordID -> list of 'Level · RuleTitle'. Key names matched case-insensitively."""
-    detecciones = {}
+    """Hayabusa JSONL -> (RecordID -> ['Level · RuleTitle'], list of rows).
+    Key names matched case-insensitively; rows without a RecordID (correlation
+    rules) are kept in the list but not indexed."""
+    detecciones, filas = {}, []
     with open(ruta, encoding="utf-8-sig") as f:
         for linea in f:
             linea = linea.strip()
@@ -68,12 +70,24 @@ def leer_hayabusa(ruta):
                 d = sin_mayus(json.loads(linea))
             except json.JSONDecodeError:
                 continue
+            filas.append(d)
             rid = d.get("recordid")
             if rid in (None, "", "-"):
                 continue
             detecciones.setdefault(str(rid), []).append(
                 f"{d.get('level', '?')} · {d.get('ruletitle', '?')}")
-    return detecciones
+    return detecciones, filas
+
+
+def cuenta_hayabusa(d):
+    det = sin_mayus(d.get("details"))
+    sujeto, objetivo = det.get("subjectusername"), det.get("targetusername")
+    if sujeto and objetivo and sujeto.lower() != objetivo.lower():
+        return f"{sujeto} → {objetivo}"           # e.g. 4724: who reset whom
+    for k in ("tgtuser", "user", "targetusername", "subjectusername"):
+        if det.get(k):
+            return det[k]
+    return ""
 
 
 def comparar(alerta, registro):
@@ -130,6 +144,9 @@ def resumen(ev):
 
 
 def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
+    hb_filas = []
+    if isinstance(hayabusa, tuple):
+        hayabusa, hb_filas = hayabusa
     sysd = alerta.get("data", {}).get("win", {}).get("system", {})
     rid = str(sysd.get("eventRecordID"))
     regla = alerta.get("rule", {})
@@ -161,20 +178,58 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
     cuenta = base_cuenta(base["cuenta"])
     ligados = [e for e in cerca if resumen(e)["ip"] == base["ip"] or base_cuenta(resumen(e)["cuenta"]) == cuenta]
     filas_tl = cerca if todo else ligados
+    # Hayabusa detections on records the native export does not hold (e.g.
+    # 4662, 4724): added when tied to the account, the client or a logon
+    # session (LogonId) of a related event.
+    nativos = {str(e.get("RecordId")) for e in eventos}
+    sesiones = {(sin_mayus(e.get("EventData")).get("targetlogonid") or "").lower() for e in ligados} - {"", "0x0"}
+    solo_hb = []
+    for d in hb_filas:
+        rid_hb, ts = str(d.get("recordid", "")), d.get("timestamp")
+        if not ts or rid_hb in ("", "-", "None") or rid_hb in nativos:
+            continue
+        if not (desde <= hora(ts) <= hasta):
+            continue
+        det = sin_mayus(d.get("details"))
+        texto = json.dumps(det, ensure_ascii=False).lower()
+        lid = str(det.get("lid") or det.get("subjectlogonid") or "").lower()
+        if todo or cuenta in texto or (base["ip"] and base["ip"] in texto) or lid in sesiones:
+            solo_hb.append(d)
     out += [f"## 2. Timeline (±{ventana_min} min, UTC, DC clock)", "",
             (f"All {len(cerca)} Kerberos/logon events in the window." if todo else
              f"Events from client {base['ip']} or for account `{cuenta}`: {len(ligados)} of {len(cerca)} "
              f"in the window; the other {len(cerca) - len(ligados)} (machine account, local service "
-             f"logons) are omitted — `--all` lists them."), "",
+             f"logons) are omitted — `--all` lists them.") +
+            (f" Plus {len({str(d.get('recordid')) for d in solo_hb})} record(s) only Hayabusa holds, tied by "
+             f"account, client or logon session." if solo_hb else ""), "",
             "| Time | Record | Event | Account | Service | Client IP | Encryption | Detail | Hayabusa |",
             "|---|---|---|---|---|---|---|---|---|"]
+    filas_md = []
     for e in filas_tl:
         r = resumen(e)
         marca = " **← alert**" if str(e.get("RecordId")) == rid else ""
         hb = "; ".join(hayabusa.get(str(e.get("RecordId")), [])) if hayabusa is not None else "n/a"
-        out.append(f"| {hora(e['TimeCreated']).strftime('%H:%M:%S.%f')[:-3]} | {e.get('RecordId')}{marca} | "
-                   f"{e.get('EventId')} | {r['cuenta']} | {r['servicio']} | {r['ip']} | {r['enc']} | "
-                   f"{r['detalle']} | {hb or '—'} |")
+        d = sin_mayus(e.get("EventData"))
+        lid = d.get("targetlogonid")
+        det = ", ".join(x for x in (r["detalle"], f"logon {lid}" if lid and e.get("EventId") in (4624, 4634) else "") if x)
+        filas_md.append((hora(e["TimeCreated"]), int(e.get("RecordId", 0)),
+                         f"| {hora(e['TimeCreated']).strftime('%H:%M:%S.%f')[:-3]} | {e.get('RecordId')}{marca} | "
+                         f"{e.get('EventId')} | {r['cuenta']} | {r['servicio']} | {r['ip']} | {r['enc']} | "
+                         f"{det} | {hb or '—'} |"))
+    vistos = set()
+    for d in solo_hb:
+        clave = str(d.get("recordid"))
+        titulos = "; ".join(hayabusa.get(clave, [])) if hayabusa else d.get("ruletitle", "")
+        if clave in vistos:
+            continue
+        vistos.add(clave)
+        det = sin_mayus(d.get("details"))
+        lid = det.get("lid") or det.get("subjectlogonid")
+        filas_md.append((hora(d["timestamp"]), int(clave),
+                         f"| {hora(d['timestamp']).strftime('%H:%M:%S.%f')[:-3]} | {clave} | {d.get('eventid')} | "
+                         f"{cuenta_hayabusa(d)} |  |  |  | Hayabusa only (not in the native export)"
+                         f"{f', logon {lid}' if lid else ''} | {titulos} |"))
+    out += [f for _, _, f in sorted(filas_md)]
 
     tgs_ip = [e for e in cerca if e.get("EventId") == 4769 and resumen(e)["ip"] == base["ip"]]
     servicios = sorted({resumen(e)["servicio"] for e in tgs_ip})

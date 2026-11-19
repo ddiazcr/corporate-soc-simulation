@@ -349,7 +349,7 @@ Deliverables:
 - [x] Incident report per attack (timeline, IOCs, response, hardening) — [`docs/incident-reports.md`](docs/incident-reports.md)
 - [x] Discovery decoy: disabled account `adm_backup_legacy` with a Read-Property SACL ([`scripts/Setup-DiscoveryDecoy.ps1`](scripts/Setup-DiscoveryDecoy.ps1)) + rule 100230
 - [x] End-to-end validation of 100230 (LDAP enumeration from Kali) and 100212 (honeytoken ticket request)
-- [ ] Offline investigation of the live 100212 alert: raw DC01 EVTX, Hayabusa timeline, correlation with event 4769 and pre-escalation checks — [prepared, EVTX pending](docs/investigations/kerberoast-honeytoken-2026-11-15/)
+- [x] Offline investigation of the live 100212 alert: raw DC01 EVTX hashed on the DC, Hayabusa 4.4.0 timeline, alert ↔ event 4769 match on 14/14 fields, conclusion and pre-escalation checks — [report](docs/investigations/kerberoast-honeytoken-2026-11-15/) · [evidence](docs/evidence/offline-kerberoast-2026-11-15/)
 
 ---
 
