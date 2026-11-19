@@ -318,9 +318,12 @@ manager in `casos_ad.db`:
 - `feed_cursor` — position of the last line fully handled. The reader also
   emits a start mark with its initial position, recorded before the first
   alert, so even the first alert of a first start is read again after a crash;
-- `feed_procesadas` — Wazuh alert id → case id. Written as `en_revision` as soon
-  as the case is saved (before notification and the approval prompt), and
-  `atendida` once a row in `decisiones` exists for that case.
+- `feed_procesadas` — Wazuh alert id → case id. Written as `en_revision` in the
+  **same transaction** that saves the case, new or merged by dedup (before
+  notification and the approval prompt), and `atendida` once a row in
+  `decisiones` exists for that case. If the link write fails, the case write
+  is rolled back too: there is never a case without its link, so a
+  `--no-dedup` restart cannot open a second case for the same alert.
 
 | Situation | Behaviour |
 |---|---|

@@ -362,11 +362,14 @@ def estado_alerta(conn, manager, wazuh_id):
 
 
 def vincular_caso(conn, manager, alerta, caso_id):
-    """Alert -> case link, written as soon as the case is committed (before
-    notification and the approval prompt), independent of content dedup."""
+    """Alert -> case link ('en_revision'), independent of content dedup.
+
+    Called by procesar_alerta inside the transaction that saves the case (new
+    or merged), before notification and the approval prompt. It does NOT
+    commit: triage.confirmar_caso commits case and link together, or rolls
+    both back if this write fails."""
     conn.execute("INSERT OR REPLACE INTO feed_procesadas VALUES (?,?,?,?,?)",
                  (manager, alerta.get("_wazuh_id"), caso_id, "en_revision", datetime.now(timezone.utc).isoformat()))
-    conn.commit()
 
 
 def marcar_atendida(conn, manager, alerta, caso_id):

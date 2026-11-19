@@ -311,6 +311,111 @@ class InterruptedReviewTests(unittest.TestCase):
                              (caso, "atendida"))
 
 
+class LinkAtomicityTests(unittest.TestCase):
+    """The case write and the alert -> case link are ONE transaction.
+
+    Before: procesar_alerta committed the case and then the feed committed the
+    link in a second transaction. A failure between the two left a case with
+    no link, and a --no-dedup restart opened a second case for the same alert.
+    Here the link write itself fails (after executing, inside the open
+    transaction): neither the case nor the link may survive, and the restart
+    must end with exactly one case, its decision and its link."""
+
+    MANAGER = "lab@192.168.56.102"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cwd = os.getcwd()
+        os.chdir(self.tmp.name)
+        self.orig = (wazuh_feed.lineas_ssh, wazuh_feed.vincular_caso, triage.MODE,
+                     triage.solicitar_aprobacion, sys.argv)
+        triage.MODE = "SIMULADO"
+        wazuh_feed.lineas_ssh = lambda destino, cursor=None, **kw: iter(self.lineas)
+        orig_sol = self.orig[3]
+        self.pedidas = []
+
+        def solicitar(conn, caso_id, analisis, entrada=input, analista="analista"):
+            self.pedidas.append(caso_id)
+            return orig_sol(conn, caso_id, analisis, entrada=lambda *_: "a", analista=analista)
+        triage.solicitar_aprobacion = solicitar
+        self.en_transaccion = []
+
+    def tearDown(self):
+        (wazuh_feed.lineas_ssh, wazuh_feed.vincular_caso, triage.MODE,
+         triage.solicitar_aprobacion, sys.argv) = self.orig
+        os.chdir(self.cwd)
+        self.tmp.cleanup()
+
+    def _vinculo_que_falla(self):
+        original = self.orig[1]
+
+        def falla(conn, manager, alerta_, caso_id):
+            original(conn, manager, alerta_, caso_id)          # the link row is written...
+            self.en_transaccion.append(conn.in_transaction)    # ...in the case's open transaction
+            raise sqlite3.OperationalError("disk I/O error (simulated link failure)")
+        wazuh_feed.vincular_caso = falla
+
+    def _main(self, *extra):
+        sys.argv = ["wazuh_feed.py", "--ssh", self.MANAGER, *extra]
+        return wazuh_feed.main()
+
+    def _db(self):
+        return sqlite3.connect("casos_ad.db")
+
+    def test_new_case_link_failure_rolls_back_and_no_dedup_restart_opens_one_case(self):
+        self.lineas = ["@7:50 #start", "@7:100 " + alerta(T[1], "N")]
+        self._vinculo_que_falla()
+        with self.assertRaises(sqlite3.OperationalError):
+            self._main("--no-dedup")
+        self.assertEqual(self.en_transaccion, [True])
+        with self._db() as c:
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM casos").fetchone()[0], 0)            # case rolled back
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM feed_procesadas").fetchone()[0], 0)  # link rolled back
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM decisiones").fetchone()[0], 0)
+            self.assertEqual(c.execute("SELECT posicion FROM feed_cursor").fetchone()[0], 50)     # alert not passed
+        self.assertEqual(self.pedidas, [])                     # the analyst was never asked
+
+        wazuh_feed.vincular_caso = self.orig[1]
+        self._main("--no-dedup")                               # recovery: same alert, still --no-dedup
+        with self._db() as c:
+            (caso,), = c.execute("SELECT id FROM casos").fetchall()                              # exactly one case
+            self.assertEqual(c.execute("SELECT caso_id, decision FROM decisiones").fetchall(), [(caso, "approved")])
+            self.assertEqual(c.execute("SELECT caso_id, estado FROM feed_procesadas WHERE wazuh_id='N'").fetchone(),
+                             (caso, "atendida"))
+            self.assertEqual(c.execute("SELECT posicion FROM feed_cursor").fetchone()[0], 100)
+        self.assertEqual(self.pedidas, [caso])
+
+    def test_merged_case_link_failure_rolls_back_the_counter_and_recovers(self):
+        self.lineas = ["@7:100 " + alerta(T[1], "A")]
+        self._main()                                           # case for A, decided
+        with self._db() as c:
+            (caso, conteo, ultima), = c.execute("SELECT id, conteo, ultima_deteccion FROM casos").fetchall()
+        self.assertEqual(conteo, 1)
+
+        self.lineas = ["@7:200 " + alerta(T[2], "B")]          # same content, other alert id -> dedup merge
+        self._vinculo_que_falla()
+        with self.assertRaises(sqlite3.OperationalError):
+            self._main()
+        self.assertEqual(self.en_transaccion, [True])
+        with self._db() as c:
+            self.assertEqual(c.execute("SELECT id, conteo, ultima_deteccion FROM casos").fetchall(),
+                             [(caso, 1, ultima)])                                               # UPDATE rolled back
+            self.assertIsNone(c.execute("SELECT 1 FROM feed_procesadas WHERE wazuh_id='B'").fetchone())
+            self.assertEqual(c.execute("SELECT caso_id, estado FROM feed_procesadas WHERE wazuh_id='A'").fetchone(),
+                             (caso, "atendida"))                                                 # earlier work intact
+            self.assertEqual(c.execute("SELECT posicion FROM feed_cursor").fetchone()[0], 100)
+
+        wazuh_feed.vincular_caso = self.orig[1]
+        self._main()                                           # recovery
+        with self._db() as c:
+            self.assertEqual(c.execute("SELECT id, conteo FROM casos").fetchall(), [(caso, 2)])  # merged once
+            self.assertEqual(c.execute("SELECT caso_id, estado FROM feed_procesadas WHERE wazuh_id='B'").fetchone(),
+                             (caso, "atendida"))
+            self.assertEqual(c.execute("SELECT COUNT(*) FROM decisiones").fetchone()[0], 1)      # not asked twice
+            self.assertEqual(c.execute("SELECT posicion FROM feed_cursor").fetchone()[0], 200)
+        self.assertEqual(self.pedidas, [caso])
+
+
 @unittest.skipUnless(os.name == "posix", "runs the real follower through bash")
 class FirstStartRealFollowerTests(unittest.TestCase):
     """First start (no checkpoint): the real follower starts at the end of the

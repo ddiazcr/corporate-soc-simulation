@@ -626,11 +626,30 @@ def evaluar_caso(conn, caso_id, esperado):
     }
 
 
+def confirmar_caso(conn, caso_id, al_guardar=None):
+    """Commit the pending case write (new case or merge) together with the
+    caller's link in ONE transaction.
+
+    `al_guardar(caso_id)` runs while the case INSERT/UPDATE is still
+    uncommitted, so its writes join the same transaction; it must not commit.
+    Either both are stored or neither is: if the link fails (or the process is
+    interrupted inside it), the case write is rolled back and the error is
+    raised, so a restart sees the alert as never handled instead of finding a
+    case with no link (which --no-dedup would duplicate)."""
+    try:
+        if al_guardar:
+            al_guardar(caso_id)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
 def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=None):
-    """Triage one alert. `al_guardar(caso_id)`, if given, is called right after
-    the case is committed (new or merged) and before the analyst is notified
-    or asked: a caller can link its own reference to the case before anything
-    that may be interrupted."""
+    """Triage one alert. `al_guardar(caso_id)`, if given, is called inside the
+    transaction that saves the case (new or merged), before the commit and
+    before the analyst is notified or asked: a caller links its own reference
+    to the case atomically with it (see confirmar_caso)."""
     alerta = limpiar(alerta)
     if int(alerta.get("level", 0)) < MIN_LEVEL:
         print(f"[SKIP] Regla {alerta.get('rule_id')} nivel {alerta.get('level')} < {MIN_LEVEL}, no se triagea")
@@ -644,9 +663,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=
     if existente:
         caso_id, conteo = existente
         conn.execute("UPDATE casos SET ultima_deteccion=?, conteo=? WHERE id=?", (ahora, conteo + 1, caso_id))
-        conn.commit()
-        if al_guardar:
-            al_guardar(caso_id)
+        confirmar_caso(conn, caso_id, al_guardar)
         print(f"[DEDUP] Caso {caso_id} actualizado (conteo={conteo + 1})")
         return caso_id
 
@@ -698,9 +715,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=
             prioridad, confianza, accion, estado,
         ),
     )
-    conn.commit()
-    if al_guardar:
-        al_guardar(caso_id)
+    confirmar_caso(conn, caso_id, al_guardar)
     notificar(caso_id, alerta, analisis, estado, relacionado)
     if estado == "analizado":
         print(f"  [métricas] latencia={metricas['latencia_s']}s "
