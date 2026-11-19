@@ -1,0 +1,23 @@
+# Run on DC01 (elevated, ActiveDirectory module), 2026-11-18.
+# Resolves the 4662 object and GUIDs against this domain's schema / extended rights.
+
+> Get-ADObject -Identity 'dd002ba1-3992-4539-bf9b-9ee77df0952d' -Properties sAMAccountName, servicePrincipalName
+DistinguishedName    : CN=adm_backup_legacy,OU=Servidores,DC=lab,DC=local
+ObjectClass          : user
+sAMAccountName       : adm_backup_legacy
+servicePrincipalName : {}
+
+> schemaIDGUID / rightsGuid lookups
+bf967aba-0de6-11d0-a285-00aa003049e2  schema  user
+26d97369-6070-11d1-a9c6-0000f80367c1  schema  objectCategory
+f3a64788-5306-11d1-a9c5-0000f80367c1  schema  servicePrincipalName
+bf967a68-0de6-11d0-a285-00aa003049e2  schema  userAccountControl
+e48d0154-bcf8-11d1-8702-00c04fb96050  propset Public Information
+4c164200-20c0-11d0-a768-00aa006e0529  propset Account Restrictions
+
+> (Get-Acl -Path "AD:CN=adm_backup_legacy,OU=Servidores,DC=lab,DC=local" -Audit).Audit
+IdentityReference AuditFlags ActiveDirectoryRights ObjectType
+----------------- ---------- --------------------- ----------
+Everyone             Success          ReadProperty 00000000-0000-0000-0000-000000000000
+Everyone             Success         WriteProperty f30e3bbe-9ff0-11d1-b603-0000f80367c1
+Everyone             Success         WriteProperty f30e3bbf-9ff0-11d1-b603-0000f80367c1
