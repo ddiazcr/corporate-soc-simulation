@@ -57,7 +57,7 @@ the same logon sessions.
 |---|---|---|
 | 21:29:00 | 4625 `Administrator` (failure) | NTLM network logon from .103, wrong password (`0xc000006a`), no workstation name |
 | 21:29:30, 21:29:41 | 4625 `crojas` ×2 (failure) | Same, for `crojas` |
-| 21:30:31.948–.972 | 4661 → 4738 → **4724** (success) | `Administrator` opens `SAM_DOMAIN`, changes `crojas` (`PasswordLastSet` 1:30:31 PM DC local) and **resets its password**. Session `0x9f14e`: interactive on DC01 — desktop activity since 19:59 (taskhostw, DeviceCensus, 5379 credential reads), user-initiated logoff 4647 at 21:46:56; its logon predates the export window |
+| 21:30:31.948–.972 | 4661 → 4738 → **4724** (success) | `Administrator` opens `SAM_DOMAIN`, changes `crojas` (`PasswordLastSet` 1:30:31 PM DC local) and **resets its password**. Session `0x9f14e`: inferred interactive on DC01 from desktop activity since 19:59 (taskhostw, DeviceCensus, 5379 credential reads) and the user-initiated logoff 4647 at 21:46:56; its logon (4624) predates the export window, so logon type and origin are unconfirmed |
 | 21:31:04.559 | 4624 `crojas` (success) | NTLM network logon from .103, session `0x37072c` |
 | 21:31:04.620 | 4662 (success) | In that session: **Read Property** (`0x10`) on `adm_backup_legacy`, the discovery decoy — `objectCategory`, `servicePrincipalName`, `userAccountControl` |
 | 21:31:04.650, .960 | 4771 ×2 (failure) | Kerberos pre-auth fails: **clock skew** (`0x25`); session ends 21:31:04.996 (4634) |
@@ -82,15 +82,15 @@ What the log supports, and how far:
   (19:58–23:51 by event time) there is one 4769 from .103, for one service. That
   describes this window on this DC; ruling out a wider sweep needs a search over
   other DCs and a longer period.
-- **Discovery.** Both sessions from .103 read, on the decoy `adm_backup_legacy`
-  (no SPN, disabled), the attributes `objectCategory`, `servicePrincipalName` and
-  `userAccountControl` — the attributes an LDAP search for accounts with an SPN
-  evaluates. Only this object carries a Read-Property audit SACL (Everyone,
+- **Discovery.** In both sessions from .103 a read of the attributes
+  `objectCategory`, `servicePrincipalName` and `userAccountControl` was logged on
+  the decoy `adm_backup_legacy` (no SPN, disabled), compatible with an LDAP query
+  related to SPNs; the exact filter is not in the log. Only this object carries a Read-Property audit SACL (Everyone,
   Success), so the 4662 proves the search reached the decoy but cannot measure
   how many objects it read. Hence T1087.002 as hypothesis.
 - **The password reset.** `Administrator` reset `crojas`'s password
-  successfully (4724 Audit Success, 4738 `PasswordLastSet`) from an interactive
-  session on DC01, 33 s before the first successful logon from .103. Without a
+  successfully (4724 Audit Success, 4738 `PasswordLastSet`) from session
+  `0x9f14e` on DC01 (interactive by inference, see the timeline), 33 s before the first successful logon from .103. Without a
   confirmed authorisation this justifies escalation and a review of that
   session; it does not by itself show that the session was compromised.
 - **Sequence.** In the 21:37:36 session: NTLM logon → decoy read → RC4 TGT →
@@ -107,7 +107,8 @@ What the log supports, and how far:
 |---|---|---|
 | Raw record matches the alert | ✅ 14/14 (reported) | The alert is evidence-backed |
 | 4724 result | ✅ Audit Success, with 4738 `PasswordLastSet` | The reset took effect |
-| **Authorisation of the reset** (session `0x9f14e`, interactive on DC01) | ⏳ **Operator confirmation** | If not authorised: escalate and review the session; its 4624 predates 19:00Z, so re-export from an earlier start to see its origin (console or RDP, and from where) |
+| **Authorisation of the reset** (session `0x9f14e` on DC01) | ⏳ **Operator confirmation** | If not authorised: escalate and review the session |
+| Logon type and origin of `0x9f14e` | ⏳ Interactive is an inference (desktop activity, 4647) | Its 4624 predates 19:00Z: re-export from an earlier start to confirm type (console/RDP) and source |
 | Decoy read also raised Wazuh 100230 | ⏳ Check `alerts.json` for 2026-11-15 | Two independent detections of the discovery step |
 | Host 192.168.56.103 | Lab inventory: Kali VM | In production: asset owner, managed or not (no workstation name in any logon) |
 | Account `crojas` | Used from .103 only after the reset | Contact the owner; logons elsewhere |
