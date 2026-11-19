@@ -43,10 +43,14 @@ restart began at the saved cursor and did not replay the two handled alerts
 
 | File | What it shows |
 |---|---|
-| `p10-a-approved.png` | First alert, `a` → `approved` |
-| `p10-r-rejected.png` | `r` → `rejected` |
-| `p10-invalid-reask.png` | `x` → `Respuesta no válida` → asked again |
-| `p10-s-skipped.png` | `s` → `skipped` |
-| `sqlite-decisions.txt` | Decision ↔ case ↔ Wazuh id |
+| `p10-a-approved.png` | Feed resumes at `945752 937579`; alert 03:39:08, `a` → `approved`; second alert waiting |
+| `p10-a-telegram.png` | Notification for case `…-801a1f14` |
+| `p10-second-a-approved-and-stop.png` | Alert 03:40:13 answered `a` → `approved`; feed stopped |
+| `p10-second-telegram.png` | Notification for case `…-c2bcdd7b` |
+| `p10-r-rejected.png` | Alert 03:47:51, `r` → `rejected` |
+| `p10-invalid-reask.png` | Alert 03:48:27, `x` → `Respuesta no válida` → asked again → `a` |
+| `p10-s-skipped.png` | Alert 03:49:21, `s` → `skipped` |
+| `p10-sqlite-decisions.png` | The SQLite query in the terminal |
+| `sqlite-decisions.txt` | Decision ↔ case ↔ Wazuh id (text) |
 
 Screenshots are unedited terminal captures.

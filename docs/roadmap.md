@@ -157,7 +157,8 @@ compared fields. Conclusion: true positive — Kerberoasting of the honeytoken
 from 192.168.56.103 with `crojas`, preceded by wrong-password attempts; both
 sessions read the discovery decoy's SPN-related attributes (account discovery
 kept as hypothesis); `crojas` was used right after a successful password reset
-from an `Administrator` session on DC01 (interactive by inference). Open: operator
-confirmation of that reset, Wazuh 100230 cross-check, wider scope.
+from an `Administrator` session on DC01 (interactive by inference). The reset was
+confirmed by the operator as lab setup. Open: Wazuh 100230 cross-check, logon
+type of the `Administrator` session, wider scope.
 [Investigation](investigations/kerberoast-honeytoken-2026-11-15/) ·
 [evidence](evidence/offline-kerberoast-2026-11-15/)

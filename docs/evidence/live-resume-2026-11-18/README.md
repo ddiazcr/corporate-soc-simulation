@@ -55,14 +55,14 @@ alert was.
 
 | File | What it shows |
 |---|---|
-| `t1-first-start-and-stop.png` | First start (`Sin punto de retoma`), stop |
+| — | First start and stop: not captured as an image; the terminal text and the SQLite values (cursor 945752:768176, 65/65) are recorded in this README |
 | `t2-dc01-honeytoken-during-pause.png` | `klist get` on DC01 with the feed stopped: RC4 service ticket |
 | `t3-restart-recovers-alert-stop-at-prompt.png` | Remote reader started at `945752 768176`; alert 03:23:41; stop at the prompt |
 | `t3-telegram.png` | Notification for case `…-a8c56acd` |
 | `t4-resume-review-same-case-approved.png` | Remote reader at `945752 779078`; review resumed on the same case; `approved` |
 | `sqlite-final-state.txt` | Final SQLite query |
 
-Screenshots are unedited terminal and chat captures.
+Screenshots are unedited terminal and chat captures (saved from the session on 2026-11-18).
 
 ## Reproduce
 

@@ -3,8 +3,9 @@
 > **Status: analysed.** Raw DC01 Security log exported and hashed on the DC
 > (2026-11-18), Hayabusa 4.4.0 timeline, field-by-field correlation with the
 > Wazuh alert, native fields and audit result of the records Hayabusa added,
-> AD objects resolved on DC01. Open: operator confirmation that the password
-> reset of `crojas` was authorised.
+> AD objects resolved on DC01. The password reset of `crojas` was confirmed
+> by the operator as part of the lab setup (2026-11-18). Open: Wazuh 100230
+> cross-check, logon type of `0x9f14e`, wider scope.
 
 ## Question
 
@@ -107,7 +108,7 @@ What the log supports, and how far:
 |---|---|---|
 | Raw record matches the alert | ✅ 14/14 (reported) | The alert is evidence-backed |
 | 4724 result | ✅ Audit Success, with 4738 `PasswordLastSet` | The reset took effect |
-| **Authorisation of the reset** (session `0x9f14e` on DC01) | ⏳ **Operator confirmation** | If not authorised: escalate and review the session |
+| **Authorisation of the reset** (session `0x9f14e` on DC01) | ✅ Confirmed by the operator (2026-11-18): password set for the test account during the lab session | In production, an unconfirmed reset would mean escalating and reviewing the session |
 | Logon type and origin of `0x9f14e` | ⏳ Interactive is an inference (desktop activity, 4647) | Its 4624 predates 19:00Z: re-export from an earlier start to confirm type (console/RDP) and source |
 | Decoy read also raised Wazuh 100230 | ⏳ Check `alerts.json` for 2026-11-15 | Two independent detections of the discovery step |
 | Host 192.168.56.103 | Lab inventory: Kali VM | In production: asset owner, managed or not (no workstation name in any logon) |
@@ -121,9 +122,10 @@ origin, reset `crojas` and review its logons, contain 192.168.56.103. The
 honeytoken and the decoy need no change.
 
 **Lab context.** This was the authorised Kerberoasting test from Kali on
-2026-11-15 ([live detection](../../evidence/live-kerberoast-2026-11-15/)); the
-reset is expected to be the operator setting a known password for the test
-account, which the open check records until confirmed.
+2026-11-15 ([live detection](../../evidence/live-kerberoast-2026-11-15/)). The
+operator confirmed that the reset of `crojas` was done during the lab session to
+set a known password for the test account. With that confirmed, the case is a
+true positive of an authorised test: no response action.
 
 ## Reproduce
 
