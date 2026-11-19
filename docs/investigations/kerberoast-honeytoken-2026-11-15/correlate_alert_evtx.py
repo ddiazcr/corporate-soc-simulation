@@ -29,6 +29,11 @@ CAMPOS = ["TargetUserName", "TargetDomainName", "ServiceName", "ServiceSid", "Ip
           "IpPort", "TicketOptions", "TicketEncryptionType", "Status", "LogonGuid"]
 
 ENC = {"0x17": "RC4", "0x18": "RC4-EXP", "0x11": "AES128", "0x12": "AES256", "0x1": "DES", "0x3": "DES"}
+# Common codes only; anything else is printed raw.
+NT_SUB = {"0xc000006a": "wrong password", "0xc0000064": "no such user", "0xc0000234": "locked out",
+          "0xc0000072": "disabled", "0xc000006f": "outside logon hours", "0xc0000071": "password expired"}
+KRB = {"0x6": "unknown principal", "0x12": "revoked/disabled", "0x18": "pre-auth failed (bad password)",
+       "0x25": "clock skew (KRB_AP_ERR_SKEW)", "0x17": "password expired"}
 
 
 def leer_json(ruta):
@@ -88,6 +93,32 @@ def comparar(alerta, registro):
             for n, a, e in filas]
 
 
+def base_cuenta(nombre):
+    """'crojas@LAB.LOCAL' / 'LAB\\crojas' / 'crojas' -> 'crojas'."""
+    n = (nombre or "").split("@")[0]
+    return n.split("\\")[-1].lower()
+
+
+def detalle(ev):
+    d = sin_mayus(ev.get("EventData"))
+    eid = ev.get("EventId")
+    if eid in (4624, 4625):
+        partes = [f"type {d.get('logontype')}", d.get("authenticationpackagename") or ""]
+        if d.get("workstationname") in ("-", "", None):
+            partes.append("no workstation name")
+        sub = (d.get("substatus") or "").lower()
+        if eid == 4625 and sub:
+            partes.append(f"{sub} {NT_SUB.get(sub, '')}".strip())
+        return ", ".join(p for p in partes if p)
+    if eid in (4768, 4771, 4769):
+        st = (d.get("status") or "").lower()
+        partes = [f"{st} {KRB.get(st, '')}".strip()] if st not in ("", "0x0") else []
+        if d.get("preauthtype") not in (None, ""):
+            partes.append(f"pre-auth {d.get('preauthtype')}")
+        return ", ".join(partes)
+    return ""
+
+
 def resumen(ev):
     d = sin_mayus(ev.get("EventData"))
     cuenta = d.get("targetusername") or d.get("subjectusername") or ""
@@ -95,10 +126,10 @@ def resumen(ev):
     enc = d.get("ticketencryptiontype") or ""
     return {"cuenta": cuenta, "servicio": d.get("servicename") or "", "ip": ip,
             "enc": f"{enc} ({ENC[enc.lower()]})" if enc.lower() in ENC else enc,
-            "estado": d.get("status") or ""}
+            "estado": d.get("status") or "", "detalle": detalle(ev)}
 
 
-def informe(alerta, eventos, hayabusa, ventana_min):
+def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
     sysd = alerta.get("data", {}).get("win", {}).get("system", {})
     rid = str(sysd.get("eventRecordID"))
     regla = alerta.get("rule", {})
@@ -126,18 +157,25 @@ def informe(alerta, eventos, hayabusa, ventana_min):
     desde, hasta = t0 - timedelta(minutes=ventana_min), t0 + timedelta(minutes=ventana_min)
     cerca = sorted((e for e in eventos if desde <= hora(e["TimeCreated"]) <= hasta),
                    key=lambda e: (hora(e["TimeCreated"]), int(e.get("RecordId", 0))))
+    base = resumen(registro)
+    cuenta = base_cuenta(base["cuenta"])
+    ligados = [e for e in cerca if resumen(e)["ip"] == base["ip"] or base_cuenta(resumen(e)["cuenta"]) == cuenta]
+    filas_tl = cerca if todo else ligados
     out += [f"## 2. Timeline (±{ventana_min} min, UTC, DC clock)", "",
-            "| Time | Record | Event | Account | Service | Client IP | Encryption | Status | Hayabusa |",
+            (f"All {len(cerca)} Kerberos/logon events in the window." if todo else
+             f"Events from client {base['ip']} or for account `{cuenta}`: {len(ligados)} of {len(cerca)} "
+             f"in the window; the other {len(cerca) - len(ligados)} (machine account, local service "
+             f"logons) are omitted — `--all` lists them."), "",
+            "| Time | Record | Event | Account | Service | Client IP | Encryption | Detail | Hayabusa |",
             "|---|---|---|---|---|---|---|---|---|"]
-    for e in cerca:
+    for e in filas_tl:
         r = resumen(e)
         marca = " **← alert**" if str(e.get("RecordId")) == rid else ""
         hb = "; ".join(hayabusa.get(str(e.get("RecordId")), [])) if hayabusa is not None else "n/a"
         out.append(f"| {hora(e['TimeCreated']).strftime('%H:%M:%S.%f')[:-3]} | {e.get('RecordId')}{marca} | "
                    f"{e.get('EventId')} | {r['cuenta']} | {r['servicio']} | {r['ip']} | {r['enc']} | "
-                   f"{r['estado']} | {hb or '—'} |")
+                   f"{r['detalle']} | {hb or '—'} |")
 
-    base = resumen(registro)
     tgs_ip = [e for e in cerca if e.get("EventId") == 4769 and resumen(e)["ip"] == base["ip"]]
     servicios = sorted({resumen(e)["servicio"] for e in tgs_ip})
     rc4 = [e for e in tgs_ip if (sin_mayus(e.get("EventData")).get("ticketencryptiontype") or "").lower() == "0x17"]
@@ -145,12 +183,19 @@ def informe(alerta, eventos, hayabusa, ventana_min):
            and hora(e["TimeCreated"]) <= t0]
     fallos = [e for e in cerca if e.get("EventId") in (4771, 4625)
               or (e.get("EventId") in (4768, 4769) and resumen(e)["estado"] not in ("", "0x0"))]
+    fallos_ip = [e for e in fallos if resumen(e)["ip"] == base["ip"]]
+    ntlm_ip = [e for e in cerca if e.get("EventId") == 4624 and resumen(e)["ip"] == base["ip"]
+               and (sin_mayus(e.get("EventData")).get("authenticationpackagename") or "").upper() == "NTLM"]
     out += ["", "## 3. Facts for the analyst (counted in the window, not inferred)", "",
             f"- Service tickets (4769) from {base['ip']}: {len(tgs_ip)}, for {len(servicios)} "
             f"service(s): {', '.join(servicios) or '—'}; RC4 among them: {len(rc4)}",
             f"- TGT requests (4768) from {base['ip']} before the alert: {len(tgt)}" +
             (f" (accounts: {', '.join(sorted({resumen(e)['cuenta'] for e in tgt}))})" if tgt else ""),
-            f"- Kerberos/logon failures in the window: {len(fallos)}"]
+            f"- Kerberos/logon failures in the window: {len(fallos)}; from {base['ip']}: {len(fallos_ip)}" +
+            (" — " + "; ".join(f"{resumen(e)['cuenta']} {e.get('EventId')} {resumen(e)['detalle']}"
+                               for e in fallos_ip) if fallos_ip else ""),
+            f"- Successful NTLM network logons (4624) from {base['ip']}: {len(ntlm_ip)}" +
+            (f" (accounts: {', '.join(sorted({resumen(e)['cuenta'] for e in ntlm_ip}))})" if ntlm_ip else "")]
     if hayabusa is not None:
         out.append(f"- Hayabusa detection on the alerted record: "
                    f"{'; '.join(hayabusa.get(rid, [])) or 'none (no Hayabusa rule matched it)'}")
@@ -163,13 +208,14 @@ def main(argv=None):
     p.add_argument("--events", required=True)
     p.add_argument("--hayabusa")
     p.add_argument("--window", type=int, default=10, help="minutes around the alerted record")
+    p.add_argument("--all", action="store_true", help="list every event in the window, not only the related ones")
     p.add_argument("--out")
     a = p.parse_args(argv)
     eventos = leer_json(a.events)
     if isinstance(eventos, dict):  # ConvertTo-Json of a single event
         eventos = [eventos]
     texto, ok = informe(leer_json(a.alert), eventos,
-                        leer_hayabusa(a.hayabusa) if a.hayabusa else None, a.window)
+                        leer_hayabusa(a.hayabusa) if a.hayabusa else None, a.window, a.all)
     if a.out:
         with open(a.out, "w", encoding="utf-8") as f:
             f.write(texto)

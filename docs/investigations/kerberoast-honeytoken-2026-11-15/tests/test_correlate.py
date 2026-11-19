@@ -46,6 +46,13 @@ EVENTOS = [
     evento(256462, 4769, "2026-11-15T21:37:36.3275507Z", **pascal(EV)),
     evento(256470, 4769, "2026-11-15T21:39:00.0000000Z", TargetUserName="DC01$@LAB.LOCAL",
            ServiceName="krbtgt", IpAddress="::1", TicketEncryptionType="0x12", Status="0x0"),
+    evento(256440, 4625, "2026-11-15T21:30:00.0000000Z", TargetUserName="crojas", IpAddress="192.168.56.103",
+           Status="0xc000006d", SubStatus="0xc000006a", LogonType="3", AuthenticationPackageName="NTLM",
+           WorkstationName="-"),
+    evento(256445, 4771, "2026-11-15T21:31:00.0000000Z", TargetUserName="crojas", ServiceName="krbtgt/LAB.LOCAL",
+           IpAddress="::ffff:192.168.56.103", Status="0x25", PreAuthType="2"),
+    evento(256450, 4624, "2026-11-15T21:37:36.2000000Z", TargetUserName="crojas", IpAddress="192.168.56.103",
+           LogonType="3", AuthenticationPackageName="NTLM", WorkstationName="-"),
     evento(250000, 4769, "2026-11-15T20:00:00.0000000Z", ServiceName="far_away",
            IpAddress="::ffff:192.168.56.103", TicketEncryptionType="0x17", Status="0x0"),
 ]
@@ -80,6 +87,24 @@ class CorrelateTests(unittest.TestCase):
         self.assertIn("Service tickets (4769) from 192.168.56.103: 1, for 1 service(s): svc_sql_backup; "
                       "RC4 among them: 1", texto)
         self.assertIn("TGT requests (4768) from 192.168.56.103 before the alert: 1 (accounts: crojas)", texto)
+
+    def test_timeline_keeps_only_events_tied_to_the_client_or_account_unless_all(self):
+        texto, _ = c.informe(alerta(), EVENTOS, None, 10)
+        self.assertNotIn("DC01$", texto)                       # machine-account ticket omitted
+        self.assertIn("5 of 6 in the window; the other 1", texto)
+        texto, _ = c.informe(alerta(), EVENTOS, None, 10, todo=True)
+        self.assertIn("DC01$", texto)
+        self.assertIn("All 6 Kerberos/logon events", texto)
+
+    def test_detail_translates_failure_codes_and_counts_them_per_source(self):
+        texto, _ = c.informe(alerta(), EVENTOS, None, 10)
+        self.assertIn("type 3, NTLM, no workstation name, 0xc000006a wrong password", texto)
+        self.assertIn("0x25 clock skew (KRB_AP_ERR_SKEW), pre-auth 2", texto)
+        self.assertIn("failures in the window: 2; from 192.168.56.103: 2", texto)
+        self.assertIn("Successful NTLM network logons (4624) from 192.168.56.103: 1 (accounts: crojas)", texto)
+
+    def test_account_base_name(self):
+        self.assertEqual({c.base_cuenta(n) for n in ("crojas@LAB.LOCAL", "LAB\\crojas", "CROJAS")}, {"crojas"})
 
     def test_hayabusa_jsonl_keys_are_case_insensitive_and_absence_is_explicit(self):
         with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False, encoding="utf-8") as f:
