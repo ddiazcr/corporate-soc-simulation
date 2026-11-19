@@ -1,0 +1,8 @@
+wazuh_id | alerta_ts | caso_id | vinculo | decision_id | decision | analista | momento
+1795059548.1687269 | 2026-11-19T03:39:08.334+0000 | 23742fbbbf29b189-801a1f14 | atendida | 67 | approved | analista | 2026-11-19T03:39:41.922138+00:00
+1795059613.1704295 | 2026-11-19T03:40:13.376+0000 | 23742fbbbf29b189-c2bcdd7b | atendida | 68 | approved | analista | 2026-11-19T03:44:48.100058+00:00
+1795060071.1902286 | 2026-11-19T03:47:51.310+0000 | 23742fbbbf29b189-5f2b4ef6 | atendida | 69 | rejected | analista | 2026-11-19T03:48:05.799580+00:00
+1795060107.1911002 | 2026-11-19T03:48:27.242+0000 | 23742fbbbf29b189-01b57c47 | atendida | 70 | approved | analista | 2026-11-19T03:48:54.763359+00:00
+1795060161.1929001 | 2026-11-19T03:49:21.369+0000 | 23742fbbbf29b189-c2c6f46f | atendida | 71 | skipped | analista | 2026-11-19T03:49:32.732414+00:00
+decisiones por caso (debe ser 1 en cada uno): 1
+casos: 71 | decisiones: 71
