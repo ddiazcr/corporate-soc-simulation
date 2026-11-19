@@ -46,8 +46,11 @@ All **14 compared fields match** between the Wazuh alert and EventRecordID
 256462 in the raw log: record, event 4769, computer, time, account
 `crojas@LAB.LOCAL`, service `svc_sql_backup` and its SID, client
 `::ffff:192.168.56.103` port 59238, ticket options `0x40810010`, encryption
-`0x17` (RC4), status `0x0`, logon GUID. Reported by the correlator; the input
-files are published so the match can be re-run independently.
+`0x17` (RC4), status `0x0`, logon GUID. **Independently verified** on 2026-11-19
+by the external reviewer: the script at `64cfd32` re-run on the published JSON
+files (exit 0, output identical to `correlation.md`), 14 tests passing, all
+file hashes checked; every timeline row matched in the native records. The
+check covers the derived JSON files, not the EVTX itself (hash published).
 
 ## 2. Timeline
 
@@ -106,7 +109,7 @@ What the log supports, and how far:
 
 | Check | Status | Why it matters |
 |---|---|---|
-| Raw record matches the alert | ✅ 14/14 (reported) | The alert is evidence-backed |
+| Raw record matches the alert | ✅ 14/14, independently verified against the published JSON | The alert is evidence-backed |
 | 4724 result | ✅ Audit Success, with 4738 `PasswordLastSet` | The reset took effect |
 | **Authorisation of the reset** (session `0x9f14e` on DC01) | ✅ Confirmed by the operator (2026-11-18): password set for the test account during the lab session | In production, an unconfirmed reset would mean escalating and reviewing the session |
 | Logon type and origin of `0x9f14e` | ⏳ Interactive is an inference (desktop activity, 4647) | Its 4624 predates 19:00Z: re-export from an earlier start to confirm type (console/RDP) and source |
