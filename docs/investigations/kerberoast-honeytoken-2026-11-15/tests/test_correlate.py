@@ -106,12 +106,12 @@ class CorrelateTests(unittest.TestCase):
     def test_hayabusa_only_records_tied_by_account_or_session_join_the_timeline(self):
         filas = [
             {"timestamp": "2026-11-15T21:30:31.972Z", "ruletitle": "Password Reset By Admin", "level": "med",
-             "eventid": 4724, "recordid": 256272,
+             "eventid": 4724, "recordid": 256272, "computer": "DC01.lab.local",
              "details": {"SubjectUserName": "Administrator", "TargetUserName": "crojas", "SubjectLogonId": "0x9f14e"}},
             {"timestamp": "2026-11-15T21:37:36.259Z", "ruletitle": "Potential AD User Enumeration", "level": "med",
-             "eventid": 4662, "recordid": 256460, "details": {"User": "other", "LID": "0x39e0f5"}},
+             "eventid": 4662, "recordid": 256460, "computer": "DC01.lab.local", "details": {"User": "other", "LID": "0x39e0f5"}},
             {"timestamp": "2026-11-15T21:37:36.300Z", "ruletitle": "Unrelated", "level": "info",
-             "eventid": 4662, "recordid": 256499, "details": {"User": "svc_backup", "LID": "0x111"}},
+             "eventid": 4662, "recordid": 256499, "computer": "DC01.lab.local", "details": {"User": "svc_backup", "LID": "0x111"}},
         ]
         hb = {"256272": ["med · Password Reset By Admin"], "256460": ["med · Potential AD User Enumeration"],
               "256499": ["info · Unrelated"]}
@@ -126,6 +126,20 @@ class CorrelateTests(unittest.TestCase):
         self.assertIn("Plus 2 record(s) only Hayabusa holds", texto)
         orden = [texto.index(x) for x in ("256440", "256272", "256445", "256460", "256462 **")]
         self.assertEqual(orden, sorted(orden))                                # merged in time order
+
+    def test_hayabusa_rows_are_tied_by_whole_values_not_substrings(self):
+        ses = {("dc01.lab.local", "0x39e0f5")}
+        fila = lambda det, comp="DC01.lab.local": {"computer": comp, "details": det}
+        r = lambda d: c.relacionado_hb(d, "crojas", "192.168.56.103", ses)
+        self.assertTrue(r(fila({"TgtUser": "crojas@LAB.LOCAL"})))
+        self.assertTrue(r(fila({"TargetUserName": "LAB\\CROJAS"})))
+        self.assertFalse(r(fila({"TgtUser": "crojas_backup"})))                 # similar account
+        self.assertFalse(r(fila({"Details": "note about crojas"})))             # not an account field
+        self.assertTrue(r(fila({"SrcIP": "::ffff:192.168.56.103"})))
+        self.assertFalse(r(fila({"SrcIP": "192.168.56.10"})))                   # shared prefix
+        self.assertFalse(c.relacionado_hb(fila({"SrcIP": "192.168.56.103"}), "x", "192.168.56.10", set()))
+        self.assertTrue(r(fila({"LID": "0x39E0F5"})))
+        self.assertFalse(r(fila({"LID": "0x39e0f5"}, comp="WS01.lab.local")))   # same LogonId, other host
 
     def test_account_base_name(self):
         self.assertEqual({c.base_cuenta(n) for n in ("crojas@LAB.LOCAL", "LAB\\crojas", "CROJAS")}, {"crojas"})
@@ -150,6 +164,17 @@ class CorrelateTests(unittest.TestCase):
     def test_seven_digit_fractions_and_offsets_parse(self):
         self.assertEqual(c.hora("2026-11-15T21:37:36.3275507Z").microsecond, 327550)
         self.assertEqual(c.hora("2026-11-15T21:37:36+00:00").second, 36)
+
+    def test_offset_survives_the_fraction_cut_and_means_the_same_instant(self):
+        local = c.hora("2026-11-15T15:37:36.3275507-06:00")      # reported by the reviewer
+        self.assertIsNotNone(local.tzinfo)
+        self.assertEqual(local, c.hora("2026-11-15T21:37:36.3275507Z"))
+        self.assertEqual(c.hora("2026-11-11T19:28:28.602+0000"), c.hora("2026-11-11T19:28:28.602Z"))
+        self.assertLess(c.hora("2026-11-15T15:37:35-06:00"), c.hora("2026-11-15T21:37:36Z"))
+
+    def test_timestamp_without_zone_is_refused(self):
+        with self.assertRaises(ValueError):
+            c.hora("2026-11-15T21:37:36.123")
 
     def test_cli_exit_code(self):
         with tempfile.TemporaryDirectory() as d:

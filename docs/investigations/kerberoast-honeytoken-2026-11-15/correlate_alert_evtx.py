@@ -20,6 +20,7 @@ Standard library only.
 """
 import argparse
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -45,15 +46,21 @@ def sin_mayus(d):
     return {str(k).lower(): v for k, v in (d or {}).items()}
 
 
+_ISO = re.compile(r"^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$", re.I)
+
+
 def hora(texto):
-    """ISO-8601 with Z / offset and up to 7 fractional digits -> aware datetime."""
-    t = texto.strip().replace("Z", "+00:00")
-    if "." in t:
-        base, resto = t.split(".", 1)
-        frac = "".join(c for c in resto if c.isdigit())
-        zona = resto[len(frac):]
-        t = f"{base}.{frac[:6].ljust(6, '0')}{zona}"
-    return datetime.fromisoformat(t)
+    """ISO-8601 with Z or an offset and up to 7 fractional digits -> aware
+    datetime. The offset is kept (it is parsed apart from the fraction), and a
+    timestamp without a zone is refused rather than mixed with UTC ones."""
+    m = _ISO.match(texto.strip())
+    if not m:
+        raise ValueError(f"not an ISO-8601 timestamp: {texto!r}")
+    base, frac, zona = m.groups()
+    if not zona:
+        raise ValueError(f"timestamp without a time zone: {texto!r}")
+    zona = "+00:00" if zona.upper() == "Z" else (zona if ":" in zona else f"{zona[:3]}:{zona[3:]}")
+    return datetime.fromisoformat(f"{base}{'.' + frac[:6].ljust(6, '0') if frac else ''}{zona}")
 
 
 def leer_hayabusa(ruta):
@@ -88,6 +95,30 @@ def cuenta_hayabusa(d):
         if det.get(k):
             return det[k]
     return ""
+
+
+CAMPOS_CUENTA_HB = ("tgtuser", "user", "targetusername", "subjectusername")
+CAMPOS_IP_HB = ("srcip", "ipaddress", "sourceaddress")
+CAMPOS_LID_HB = ("lid", "subjectlogonid", "targetlogonid")
+
+
+def ip_normal(valor):
+    return str(valor or "").strip().lower().replace("::ffff:", "")
+
+
+def relacionado_hb(d, cuenta, ip, sesiones):
+    """A Hayabusa row is tied to the case only by whole, normalized values in
+    identified fields: an account field equal to the alerted account, a
+    client-address field equal to the alerted client, or a LogonId of a
+    related event on the same computer. No substring matching
+    (`crojas_backup` is not `crojas`; 192.168.56.10 is not 192.168.56.103)."""
+    det = sin_mayus(d.get("details"))
+    if any(base_cuenta(det.get(k)) == cuenta for k in CAMPOS_CUENTA_HB if det.get(k)):
+        return True
+    if ip and any(ip_normal(det.get(k)) == ip for k in CAMPOS_IP_HB if det.get(k)):
+        return True
+    equipo = str(d.get("computer") or "").lower()
+    return any((equipo, str(det.get(k)).lower()) in sesiones for k in CAMPOS_LID_HB if det.get(k))
 
 
 def comparar(alerta, registro):
@@ -182,7 +213,9 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
     # 4662, 4724): added when tied to the account, the client or a logon
     # session (LogonId) of a related event.
     nativos = {str(e.get("RecordId")) for e in eventos}
-    sesiones = {(sin_mayus(e.get("EventData")).get("targetlogonid") or "").lower() for e in ligados} - {"", "0x0"}
+    sesiones = {(str(e.get("Computer") or "").lower(), (sin_mayus(e.get("EventData")).get("targetlogonid") or "").lower())
+                for e in ligados}
+    sesiones = {s_ for s_ in sesiones if s_[1] not in ("", "0x0")}
     solo_hb = []
     for d in hb_filas:
         rid_hb, ts = str(d.get("recordid", "")), d.get("timestamp")
@@ -190,10 +223,7 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
             continue
         if not (desde <= hora(ts) <= hasta):
             continue
-        det = sin_mayus(d.get("details"))
-        texto = json.dumps(det, ensure_ascii=False).lower()
-        lid = str(det.get("lid") or det.get("subjectlogonid") or "").lower()
-        if todo or cuenta in texto or (base["ip"] and base["ip"] in texto) or lid in sesiones:
+        if todo or relacionado_hb(d, cuenta, ip_normal(base["ip"]), sesiones):
             solo_hb.append(d)
     out += [f"## 2. Timeline (±{ventana_min} min, UTC, DC clock)", "",
             (f"All {len(cerca)} Kerberos/logon events in the window." if todo else
