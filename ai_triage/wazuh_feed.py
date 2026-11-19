@@ -508,18 +508,22 @@ def main():
                   f"    ssh -o BatchMode=yes {valor('--ssh')} \"echo ok\"", file=sys.stderr)
         codigo_salida = EXIT_STREAM_LOST
     finally:
-        # Voluntary stop: closing the generator stops and reaps ssh.
-        if hasattr(fuente, "close"):
-            fuente.close()
+        # Each step runs even if the one before it fails; the first error is
+        # raised after all of them.
         try:
-            if manager:
-                # Lines skipped since the last alert are not read again.
-                guardar_cursor(conn, manager, atendida)
+            # Voluntary stop: closing the generator stops and reaps ssh.
+            if hasattr(fuente, "close"):
+                fuente.close()
         finally:
-            # Also on an unexpected error: an open handle keeps casos_ad.db
-            # locked on Windows.
-            if conn:
-                conn.close()
+            try:
+                if manager:
+                    # Lines skipped since the last alert are not read again.
+                    guardar_cursor(conn, manager, atendida)
+            finally:
+                # Also on an unexpected error: an open handle keeps
+                # casos_ad.db locked on Windows.
+                if conn:
+                    conn.close()
 
     if salida:
         with open(salida, "w", encoding="utf-8") as f:

@@ -225,6 +225,37 @@ class MainCheckpointTests(unittest.TestCase):
         self._main("--ssh", "lab@192.168.56.102", "--from-end")
         self.assertEqual(self.cursores[-1], None)
 
+    def test_a_failing_source_close_still_saves_the_cursor_and_closes_the_db(self):
+        """Stopping ssh can fail (fuente.close()); the cursor must still be
+        saved and SQLite closed (an open handle locks casos_ad.db on Windows),
+        and the close error must not be swallowed."""
+        lineas = ["@7:100 " + alerta(T[1], "A")]
+
+        class FuenteQueFallaAlCerrar:
+            def __iter__(self):
+                return iter(lineas)
+
+            def close(self):
+                raise OSError("could not stop ssh (simulated)")
+        wazuh_feed.lineas_ssh = lambda destino, cursor=None, **kw: FuenteQueFallaAlCerrar()
+        abiertas, orig_init = [], triage.init_db
+
+        def init_db():
+            conn = orig_init()
+            abiertas.append(conn)
+            return conn
+        triage.init_db = init_db
+        try:
+            with self.assertRaises(OSError):
+                self._main("--ssh", "lab@192.168.56.102")
+        finally:
+            triage.init_db = orig_init
+        (conn,) = abiertas
+        with self.assertRaises(sqlite3.ProgrammingError):          # closed
+            conn.execute("SELECT 1")
+        with self._db() as c:
+            self.assertEqual(c.execute("SELECT inode, posicion FROM feed_cursor").fetchone(), (7, 100))
+
     def test_alert_is_not_recorded_if_triage_stops_midway(self):
         def falla(conn, a, **kw):
             raise RuntimeError("stop mid-triage")
