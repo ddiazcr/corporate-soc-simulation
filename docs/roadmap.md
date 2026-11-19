@@ -131,3 +131,27 @@ does not raise rule 100212, although DC-local requests do.
     are rejected. Results kept as evidence.
   - Next Claude deliverable for Item 2: flow diagram, firewall matrix and isolation
     tests — before provisioning the VPS.
+
+---
+
+## Live validations of open work (status 2026-11-18)
+
+Unit and engine tests are done for each change below; this table tracks the
+**live** run that closes each one and links its evidence.
+
+| Change | Live validation | Status | Evidence |
+|---|---|---|---|
+| [PR #11](https://github.com/ddiazcr/corporate-soc-simulation/pull/11) — Kerberoasting rule shadowed by 92651 | Kerberoasting from Kali through the DC01 agent raises 100212 | ✅ Done 2026-11-15 (agent 004, record 256462, RC4 `0x17`) | [live detection](evidence/live-kerberoast-2026-11-15/) · [engine before/after](evidence/engine-test-2026-11-15/) (published with #11) |
+| [PR #12](https://github.com/ddiazcr/corporate-soc-simulation/pull/12) — feed resumes after a stop | Stop the feed, fire the honeytoken during the pause, restart → the same Wazuh alert id is linked to its case and decision in SQLite | ⏳ Pending (code: case and link in one transaction, `f296fd0`) | — |
+| [PR #10](https://github.com/ddiazcr/corporate-soc-simulation/pull/10) — approval gate on Windows | `a → approved`, `r → rejected`, `s → skipped`, each row in `decisiones` linked to its case | ⏳ Pending (merged; unit tests only) | — |
+
+## Item 4 — Offline investigation with Hayabusa
+
+**Goal:** tie the live 100212 alert to the raw DC01 Security log, rebuild the
+timeline around it with Hayabusa, and write what the analyst concludes and what
+must be verified before escalating.
+
+**Status:** prepared — export script, correlation script (tested on synthetic
+data) and report skeleton. The DC01 EVTX has not been exported yet; the report's
+timeline and conclusion stay empty until it is.
+[Investigation](investigations/kerberoast-honeytoken-2026-11-15/)
