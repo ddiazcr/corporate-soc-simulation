@@ -18,6 +18,8 @@ import time
 import unittest
 from contextlib import closing
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tests/: aislamiento
+import aislamiento  # noqa: E402,F401  (first: clears TELEGRAM_*/ANTHROPIC_API_KEY/AI_MODE)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import soc_ai_triage as triage  # noqa: E402
