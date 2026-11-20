@@ -7,7 +7,8 @@
 > by the operator as part of the lab setup (2026-11-18). Follow-up checks
 > closed on 2026-11-20 ([output](../../evidence/offline-kerberoast-2026-11-15/followups-2026-11-20.txt)):
 > Wazuh 100230 fired on both decoy reads; session `0x9f14e` was opened by a
-> console logon; one SPN requested from .103 in the whole retained log.
+> console logon in the same boot as the reset; a single 4769 from .103, to the
+> honeytoken, in the retained logs.
 
 ## Question
 
@@ -64,7 +65,7 @@ the same logon sessions.
 |---|---|---|
 | 21:29:00 | 4625 `Administrator` (failure) | NTLM network logon from .103, wrong password (`0xc000006a`), no workstation name |
 | 21:29:30, 21:29:41 | 4625 `crojas` ×2 (failure) | Same, for `crojas` |
-| 21:30:31.948–.972 | 4661 → 4738 → **4724** (success) | `Administrator` opens `SAM_DOMAIN`, changes `crojas` (`PasswordLastSet` 1:30:31 PM DC local) and **resets its password**. Session `0x9f14e`: **console logon** on DC01 (4624 type 2, User32, 127.0.0.1, record 209845, 2026-11-11, after the boot at record 209685 and with no boot before the reset); user-initiated logoff 4647 at 21:46:56 |
+| 21:30:31.948–.972 | 4661 → 4738 → **4724** (success) | `Administrator` opens `SAM_DOMAIN`, changes `crojas` (`PasswordLastSet` 1:30:31 PM DC local) and **resets its password**. Session `0x9f14e`: **console logon** on DC01 (4624 type 2, User32, 127.0.0.1, record 209845, 2026-11-11), same boot as the reset (System: OS started 2026-11-11 18:03:56, next shutdown 2026-11-15 21:46:54, no start between); the VM was suspended from 2026-11-11 17:38 to 2026-11-15 19:58 (VBoxService clock jump, no boot). The session ended with the shutdown that WLMS started at 21:46:54 for the expired evaluation licence (4647 at 21:46:56) |
 | 21:31:04.559 | 4624 `crojas` (success) | NTLM network logon from .103, session `0x37072c` |
 | 21:31:04.620 | 4662 (success) | In that session: **Read Property** (`0x10`) on `adm_backup_legacy`, the discovery decoy — `objectCategory`, `servicePrincipalName`, `userAccountControl` |
 | 21:31:04.650, .960 | 4771 ×2 (failure) | Kerberos pre-auth fails: **clock skew** (`0x25`); session ends 21:31:04.996 (4634) |
@@ -87,8 +88,10 @@ What the log supports, and how far:
   is high-fidelity.
 - **Breadth.** In DC01's whole retained Security log (2026-11-04 to
   2026-11-20; DC01 is the lab's only DC) there are 9 events from .103, all on
-  2026-11-15, and one 4769: the honeytoken. One SPN requested, no sweep, within
-  that retention.
+  2026-11-15. A single 4769 from .103 was observed, to the honeytoken, in the
+  retained logs. That counts ticket requests only: an LDAP sweep can read many
+  SPNs without requesting tickets, and the scope of the LDAP query stays open
+  (see *Discovery*).
 - **Discovery.** In both sessions from .103 a read of the attributes
   `objectCategory`, `servicePrincipalName` and `userAccountControl` was logged on
   the decoy `adm_backup_legacy` (no SPN, disabled), compatible with an LDAP query
@@ -117,12 +120,12 @@ What the log supports, and how far:
 | Raw record matches the alert | ✅ 14/14, independently verified against the published JSON | The alert is evidence-backed |
 | 4724 result | ✅ Audit Success, with 4738 `PasswordLastSet` | The reset took effect |
 | **Authorisation of the reset** (session `0x9f14e` on DC01) | ✅ Confirmed by the operator (2026-11-18): password set for the test account during the lab session | In production, an unconfirmed reset would mean escalating and reviewing the session |
-| Logon type and origin of `0x9f14e` | ✅ Console logon (4624 type 2, User32, 127.0.0.1), record 209845; last boot before it at record 209685, none between it and the reset (ordered by record number: 4608 is not audited and the clock moved) | A local session on the DC, not a remote one |
+| Logon type and origin of `0x9f14e` | ✅ Console logon (4624 type 2, User32, 127.0.0.1), record 209845. Same boot as the reset: Security boot marker (4624 type 0) at record 209685 just before it, System *OS started* (Kernel-General 12) at 2026-11-11 18:03:56 and no start until the shutdown of 2026-11-15 21:46:54; session activity on 2026-11-11 (records 209845–210567) and 2026-11-15 (210687–256272) | A local session on the DC, not a remote one |
 | Decoy read also raised Wazuh 100230 | ✅ Both reads (records 256286, 256460) alerted, level 12 | Two independent detections of the discovery step |
 | Host 192.168.56.103 | Lab inventory: Kali VM | In production: asset owner, managed or not (no workstation name in any logon) |
 | Account `crojas` | Used from .103 only after the reset | Contact the owner; logons elsewhere |
 | Wider scope | ✅ Whole retained log on the only DC (2026-11-04 → 2026-11-20): one 4769 from .103 | Older events were overwritten (circular log; oldest record moved from 1 to 33,517 between 2026-11-18 and 2026-11-20) |
-| Clocks | DC01 ~2 h behind on 2026-11-15; the 4771 `0x25` errors are that skew. On 2026-11-11 the boot (record 209685, 18:04) precedes a logon stamped 16:07 (record 209845): the clock was moved back ~2 h after that boot | Order by record number within one log; use the event's own time and state the offset when comparing systems |
+| Clocks | VBoxService (Guest Additions) set DC01's clock after each boot and on resume (4616 / Kernel-General 1): 2026-11-11 18:04:44 → 16:04:38 (−2 h) right after the boot, then 2026-11-11 17:38:21 → 2026-11-15 19:58:48 when the suspended VM resumed. Event times on either side of a jump are not comparable; the 4771 `0x25` errors show a skew above 5 min between Kali and DC01 at 21:31 | Order by record number within one log; use each log's own boot and time-change events to place a timestamp |
 
 **Suggested response (for human approval; nothing executed):** confirm the reset
 with its author; if unexplained, escalate, review session `0x9f14e` and its
