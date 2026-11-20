@@ -150,3 +150,34 @@ agent 004) — [evidence](evidence/live-kerberoast-2026-11-15/). **Done.**
     are rejected. Results kept as evidence.
   - Next Claude deliverable for Item 2: flow diagram, firewall matrix and isolation
     tests — before provisioning the VPS.
+
+---
+
+## Live validations of open work (status 2026-11-18)
+
+Unit and engine tests are done for each change below; this table tracks the
+**live** run that closes each one and links its evidence.
+
+| Change | Live validation | Status | Evidence |
+|---|---|---|---|
+| [PR #11](https://github.com/ddiazcr/corporate-soc-simulation/pull/11) — Kerberoasting rule shadowed by 92651 | Kerberoasting from Kali through the DC01 agent raises 100212 | ✅ Done 2026-11-15 (agent 004, record 256462, RC4 `0x17`) | [live detection](evidence/live-kerberoast-2026-11-15/) · [engine before/after](evidence/engine-test-2026-11-15/) (published with #11) |
+| [PR #12](https://github.com/ddiazcr/corporate-soc-simulation/pull/12) — feed resumes after a stop | Stop the feed, fire the honeytoken during the pause, restart → the same Wazuh alert id is linked to its case and decision in SQLite | ✅ Done 2026-11-18 at `913e768`: alert `1795058621.1289840` written during the pause was read on restart; a stop at the approval prompt resumed on the same case; 1 case, decision `approved`, link `atendida` | [live resume](evidence/live-resume-2026-11-18/) |
+| [PR #10](https://github.com/ddiazcr/corporate-soc-simulation/pull/10) — approval gate on Windows | `a → approved`, `r → rejected`, `s → skipped`, each row in `decisiones` linked to its case | ✅ Done 2026-11-18 on the Windows host: five live alerts, each answer → its decision, invalid `x` re-asked, one decision per case, each linked to its Wazuh id | [live gate](evidence/live-gate-windows-2026-11-18/) |
+
+## Item 4 — Offline investigation with Hayabusa
+
+**Goal:** tie the live 100212 alert to the raw DC01 Security log, rebuild the
+timeline around it with Hayabusa, and write what the analyst concludes and what
+must be verified before escalating.
+
+**Status (2026-11-18): analysed.** DC01 Security log exported and hashed on the
+DC; Hayabusa 4.4.0 timeline; the alert matches raw record 256462 on all 14
+compared fields. Conclusion: true positive — Kerberoasting of the honeytoken
+from 192.168.56.103 with `crojas`, preceded by wrong-password attempts; both
+sessions read the discovery decoy's SPN-related attributes (account discovery
+kept as hypothesis); `crojas` was used right after a successful password reset
+from an `Administrator` session on DC01 (interactive by inference). The reset was
+confirmed by the operator as lab setup. Open: Wazuh 100230 cross-check, logon
+type of the `Administrator` session, wider scope.
+[Investigation](investigations/kerberoast-honeytoken-2026-11-15/) ·
+[evidence](evidence/offline-kerberoast-2026-11-15/)

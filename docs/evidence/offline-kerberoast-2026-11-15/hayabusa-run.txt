@@ -1,0 +1,84 @@
+# Hayabusa 4.4.0 terminal output (ANSI colours and ASCII banner removed)
+
+Start time: 2026/11/18 22:07
+Total event log files: 1
+Total file size: 37.1 MiB
+Loading detection rules. Please wait.
+Excluded rules: 26
+Noisy rules: 12 (Disabled)
+Deprecated rules: 232 (4.95%) (Disabled)
+Experimental rules: 399 (8.51%)
+Stable rules: 245 (5.22%)
+Test rules: 4,046 (86.27%)
+Unsupported rules: 42 (0.90%) (Disabled)
+Correlation rules: 3 (0.06%)
+Correlation referenced rules: 3 (0.06%)
+Expand rules: 21 (0.45%)
+Enabled expand rules: 0 (0.00%)
+Hayabusa rules: 183
+Sigma rules: 4,506
+hayabusa rules: 1
+Total detection rules: 4,690
+Creating the channel filter. Please wait.
+Evtx files loaded after channel filter: 1
+Detection rules enabled after channel filter: 1,877
+Output profile: standard
+Scanning in progress. Please wait.
+Rule Authors: 
+Ôò¡ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò«
+Ôöé Zach Mathis (10)    @kostastsale (1)    Ôöé
+Ôöé Darkrael (1)        Maxime Thiebaut (1) Ôöé
+Ôöé Yusuke Matsui (1)                       Ôöé
+Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔòîÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò»
+Results Summary:
+Events with hits / Total events: 89 / 46,480 (Data reduction: 46,391 events (99.81%))
+Total | Unique detections: 92 | 13
+Total | Unique emergency detections: 0 (0.00%) | 0 (0.00%)
+Total | Unique critical detections: 0 (0.00%) | 0 (0.00%)
+Total | Unique high detections: 0 (0.00%) | 0 (0.00%)
+Total | Unique medium detections: 6 (6.52%) | 5 (38.46%)
+Total | Unique low detections: 16 (17.39%) | 1 (7.69%)
+Total | Unique informational detections: 70 (76.09%) | 7 (53.85%)
+First timestamp: 2026-11-15T19:58:48.671961Z
+Last timestamp: 2026-11-15T22:12:10.553378Z
+First detection: 2026-11-15T19:58:48.770968Z
+Last detection: 2026-11-15T23:51:19.289902Z
+Dates with most total detections:
+emergency: n/a, critical: n/a, high: n/a, medium: 2026-11-15 (6), low: 2026-11-15 (16), informational: 2026-11-15 (70)
+Top 5 computers with most unique detections:
+emergency: n/a
+critical: n/a
+high: n/a
+medium: DC01.lab.local (5)
+low: DC01.lab.local (1)
+informational: DC01.lab.local (7)
+Ôò¡ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò«
+Ôöé Top emergency alerts:                 Top critical alerts:                     Ôöé
+Ôö£ÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔöñ
+Ôöé n/a                                   n/a                                      Ôöé
+Ôöé n/a                                   n/a                                      Ôöé
+Ôöé n/a                                   n/a                                      Ôöé
+Ôöé n/a                                   n/a                                      Ôöé
+Ôöé n/a                                   n/a                                      Ôöé
+Ôö£ÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔöñ
+Ôöé Top high alerts:                      Top medium alerts:                       Ôöé
+Ôö£ÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔöñ
+Ôöé n/a                                   Potential AD User Enumeration Fr... (2)  Ôöé
+Ôöé n/a                                   Kerberoasting Activity - Initial... (1)  Ôöé
+Ôöé n/a                                   PW Guessing (1)                          Ôöé
+Ôöé n/a                                   Password Reset By Admin (1)              Ôöé
+Ôöé n/a                                   Possible Kerberoasting (RC4 Kerb... (1)  Ôöé
+Ôö£ÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔöñ
+Ôöé Top low alerts:                       Top informational alerts:                Ôöé
+Ôö£ÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔòîÔöñ
+Ôöé Logon Failure (Wrong Password) (16)   Kerberos Service Ticket Requeste... (29) Ôöé
+Ôöé n/a                                   Proc Exec (22)                           Ôöé
+Ôöé n/a                                   Kerberos TGT Requested (12)              Ôöé
+Ôöé n/a                                   Logoff (2)                               Ôöé
+Ôöé n/a                                   Logon (Network) (2)                      Ôöé
+Ôò░ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔòîÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔò»
+Saved file: C:\Users\daniel\nimbrek-evidence\kerberoast-2026-11-15\hayabusa-timeline.jsonl (54.5 KiB)
+Elapsed time: 00:00:13.808
+Please report any issues with Hayabusa rules to: https://github.com/Yamato-Security/hayabusa-rules/issues
+Please report any false positives with Sigma rules to: https://github.com/SigmaHQ/sigma/issues
+Please submit new Sigma rules with pull requests to: https://github.com/SigmaHQ/sigma/pulls
