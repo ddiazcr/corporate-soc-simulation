@@ -177,7 +177,13 @@ from 192.168.56.103 with `crojas`, preceded by wrong-password attempts; both
 sessions read the discovery decoy's SPN-related attributes (account discovery
 kept as hypothesis); `crojas` was used right after a successful password reset
 from an `Administrator` session on DC01 (interactive by inference). The reset was
-confirmed by the operator as lab setup. Open: Wazuh 100230 cross-check, logon
-type of the `Administrator` session, wider scope.
+confirmed by the operator as lab setup. Follow-ups closed 2026-11-20: Wazuh
+100230 fired on both decoy reads; the `Administrator` session was a console
+logon; one SPN requested from .103 in the whole retained log.
+
+**Lab maintenance.** DC01 runs Windows Server 2022 *Evaluation* without
+internet activation: on 2026-11-20 the licence grace period expired and WLMS
+shut the DC down hourly. `slmgr /rearm` restored a 10-day grace period (until
+about 2026-11-30); rearm again or activate before then.
 [Investigation](investigations/kerberoast-honeytoken-2026-11-15/) ·
 [evidence](evidence/offline-kerberoast-2026-11-15/)

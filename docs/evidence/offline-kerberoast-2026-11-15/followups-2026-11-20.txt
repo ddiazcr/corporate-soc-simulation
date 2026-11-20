@@ -1,0 +1,37 @@
+# Follow-up checks of the offline case, run 2026-11-20. Output as printed.
+
+## 1. Did Wazuh also alert on the decoy reads (rule 100230)?
+# On the manager: every alerts file (current + rotated, .gz included) searched for DC01
+# alerts with eventRecordID 256286, 256460 (decoy reads) and 256462 (control).
+# Timestamps read 2026-11-11: the manager clock was frozen at that date on 2026-11-15.
+archivos revisados: 41
+ossec-alerts-11.json.gz | record 256286 | event 4662 | rule 100230 lvl 12 | Nimbrek: decoy account read in AD by crojas - possible domain account discovery | id 1794424459.5431525 | ts 2026-11-11T19:14:19.972+0000
+ossec-alerts-11.json.gz | record 256460 | event 4662 | rule 100230 lvl 12 | Nimbrek: decoy account read in AD by crojas - possible domain account discovery | id 1794425308.5860442 | ts 2026-11-11T19:28:28.587+0000
+ossec-alerts-11.json.gz | record 256462 | event 4769 | rule 100212 lvl 12 | Nimbrek: Kerberos ticket requested for honeytoken svc_sql_backup from ::ffff:192.168.56.103 - Kerberoasting | id 1794425308.5864804 | ts 2026-11-11T19:28:28.602+0000
+
+## 2. How was session 0x9f14e opened? (DC01, live Security log)
+# Boot markers (4624 type 0, SYSTEM) and 4624 with TargetLogonId 0x9f14e, before the reset
+# (record 256272), ordered by record number. 4608 is not audited on this DC.
+rec=71406 2026-11-08T00:32:54.6971600Z type=0 user=SYSTEM logon=0x3e7
+rec=72351 2026-11-07T22:59:09.9990217Z type=0 user=SYSTEM logon=0x3e7
+rec=117864 2026-11-09T02:52:53.3978696Z type=0 user=SYSTEM logon=0x3e7
+rec=163362 2026-11-09T01:16:05.4556411Z type=0 user=SYSTEM logon=0x3e7
+rec=163953 2026-11-11T07:00:07.4031901Z type=0 user=SYSTEM logon=0x3e7
+rec=209685 2026-11-11T18:04:35.6134400Z type=0 user=SYSTEM logon=0x3e7
+rec=209845 2026-11-11T16:07:02.3049342Z type=2 user=Administrator logon=0x9f14e
+# Details of rec 209845: type=2 proc=User32 pkg=Negotiate ip=127.0.0.1 ws=DC01 linked=0x0
+# System log boots (6005), local (UTC-8) and UTC:
+System 6005 local=2026-11-15 13:53:53 utc=2026-11-15T21:53:53Z
+System 6005 local=2026-11-15 15:51:28 utc=2026-11-15T23:51:28Z
+System 6005 local=2026-11-11 10:04:42 utc=2026-11-11T18:04:42Z
+System 6005 local=2026-11-10 23:00:13 utc=2026-11-11T07:00:13Z
+
+## 3. Everything from 192.168.56.103 in the whole Security log (DC01, the lab's only DC)
+log desde: rec 33517 2026-11-04T22:55:00.3323958Z
+  2026-11-15 4624  x2
+  2026-11-15 4625  x3
+  2026-11-15 4768  x1
+  2026-11-15 4769  x1
+  2026-11-15 4771  x2
+== 4769 desde .103 (servicio, cifrado, estado)
+  2026-11-15T21:37:36.3275507Z rec=256462 user=crojas@LAB.LOCAL svc=svc_sql_backup enc=0x17 status=0x0

@@ -8,7 +8,8 @@ Analysis and conclusion: [investigation report](../../investigations/kerberoast-
 | `DC01-kerberos-logon-window.json` | 583 Kerberos/logon events (4768/4769/4770/4771/4624/4625/4634/4672) from that EVTX, parsed by `Get-WinEvent` | `4c7c4201…6d7d` |
 | `hayabusa-timeline.jsonl` | Hayabusa 4.4.0 `dfir-timeline -t jsonl -w -O`, bundled rules: 92 detections, 13 unique | `0edfef1a…5b38` |
 | `hayabusa-run.txt` | Hayabusa's terminal summary (rule counts, 89 / 46,480 events with hits); ANSI colours and banner removed | — |
-| `correlation.md` | Output of `correlate_alert_evtx.py` on the files above (exit 0: 14/14 fields match) | — |
+| `correlation.md` | Output of `correlate_alert_evtx.py` with `--events DC01-kerberos-logon-window.json DC01-native-records.json` and the Hayabusa JSONL (exit 0: 14/14 fields match; 16 timeline rows) | — |
+| `followups-2026-11-20.txt` | Wazuh 100230 cross-check, opening of session `0x9f14e`, everything from .103 in the whole retained log | — |
 | `DC01-native-records.json` | 90 records with native fields and audit result (`Keywords`): the Kali chain and every event of logon sessions `0x37072c`, `0x39e0f5`, `0x9f14e`; by `extract_native_records.ps1` on the analysis host | `8288b4fd…c785` |
 | `dc01-record-256462-still-in-log.png` | On DC01 (2026-11-18): record 256462 present; oldest record 1; Security log circular, 256 MB | — |
 | `dc01-export-script-output.png` | On DC01: export script output (record found, EVTX hash, 583 events) | — |

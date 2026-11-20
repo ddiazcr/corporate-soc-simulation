@@ -141,6 +141,47 @@ class CorrelateTests(unittest.TestCase):
         self.assertTrue(r(fila({"LID": "0x39E0F5"})))
         self.assertFalse(r(fila({"LID": "0x39e0f5"}, comp="WS01.lab.local")))   # same LogonId, other host
 
+    def test_native_records_in_the_logon_sessions_join_the_timeline(self):
+        exito = "0x8020000000000000"
+        nativos = [
+            dict(evento(256270, 4661, "2026-11-15T21:30:31.948Z", SubjectUserName="Administrator",
+                        SubjectLogonId="0x9f14e", ObjectType="SAM_DOMAIN", ObjectName="DC=lab,DC=local",
+                        AccessMask="0x100"), Keywords=exito),
+            dict(evento(256271, 4738, "2026-11-15T21:30:31.971Z", SubjectUserName="Administrator",
+                        SubjectLogonId="0x9f14e", TargetUserName="crojas",
+                        PasswordLastSet="11/15/2026 1:30:31 PM"), Keywords=exito),
+            dict(evento(256272, 4724, "2026-11-15T21:30:31.972Z", SubjectUserName="Administrator",
+                        SubjectLogonId="0x9f14e", TargetUserName="crojas"), Keywords=exito),
+            dict(evento(256300, 5379, "2026-11-15T21:30:40Z", SubjectUserName="Administrator",
+                        SubjectLogonId="0x9f14e"), Keywords=exito),                 # credential read: not added
+            dict(evento(256301, 4661, "2026-11-15T21:30:41Z", SubjectUserName="Administrator",
+                        SubjectLogonId="0x111", ObjectType="SAM_DOMAIN"), Keywords=exito),  # other session
+            dict(evento(256451, 4662, "2026-11-15T21:37:36.259Z", SubjectUserName="crojas",
+                        SubjectLogonId="0x39e0f5", AccessMask="0x10"), Keywords=exito),
+        ]
+        eventos = [dict(e) for e in EVENTOS]
+        eventos[-2] = dict(eventos[-2], EventData=dict(eventos[-2]["EventData"], TargetLogonId="0x39e0f5"))
+        texto, ok = c.informe(alerta(), eventos + nativos, None, 10)
+        self.assertTrue(ok)
+        self.assertIn("| 256271 | 4738 | Administrator → crojas |", texto)                 # by target account
+        self.assertIn("Audit Success, PasswordLastSet 11/15/2026 1:30:31 PM, session 0x9f14e", texto)
+        self.assertIn("| 256270 | 4661 | Administrator |", texto)                          # by acting session
+        self.assertIn("Audit Success, SAM_DOMAIN DC=lab,DC=local, access 0x100, session 0x9f14e", texto)
+        self.assertIn("| 256451 | 4662 | crojas |", texto)                                 # by logon session
+        self.assertNotIn("256300", texto)                                                  # 5379 not listed
+        self.assertNotIn("256301", texto)                                                  # unrelated session
+        orden = [texto.index(x) for x in ("256270", "256271", "256272", "256451", "256462 **")]
+        self.assertEqual(orden, sorted(orden))
+
+    def test_several_event_files_merge_by_record_and_the_later_one_wins(self):
+        with tempfile.TemporaryDirectory() as d:
+            a, b = os.path.join(d, "a.json"), os.path.join(d, "b.json")
+            escribir(a, [evento(1, 4624, "2026-11-15T21:00:00Z"), evento(2, 4625, "2026-11-15T21:00:01Z")])
+            escribir(b, dict(evento(2, 4625, "2026-11-15T21:00:01Z"), Keywords="0x8010000000000000"))
+            unidos = {str(e["RecordId"]): e for e in c.unir_eventos([a, b])}
+        self.assertEqual(sorted(unidos), ["1", "2"])
+        self.assertEqual(unidos["2"].get("Keywords"), "0x8010000000000000")
+
     def test_account_base_name(self):
         self.assertEqual({c.base_cuenta(n) for n in ("crojas@LAB.LOCAL", "LAB\\crojas", "CROJAS")}, {"crojas"})
 

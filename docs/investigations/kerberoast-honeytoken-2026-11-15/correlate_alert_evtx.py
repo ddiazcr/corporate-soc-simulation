@@ -33,6 +33,11 @@ ENC = {"0x17": "RC4", "0x18": "RC4-EXP", "0x11": "AES128", "0x12": "AES256", "0x
 # Common codes only; anything else is printed raw.
 NT_SUB = {"0xc000006a": "wrong password", "0xc0000064": "no such user", "0xc0000234": "locked out",
           "0xc0000072": "disabled", "0xc000006f": "outside logon hours", "0xc0000071": "password expired"}
+# Account-management and object-access events added to the timeline when they
+# belong to a logon session of a related event (needs --events with records
+# from extract_native_records.ps1).
+SESION_IDS = (4661, 4662, 4672, 4724, 4738)
+AUDIT = {"0x8020000000000000": "Audit Success", "0x8010000000000000": "Audit Failure"}
 KRB = {"0x6": "unknown principal", "0x12": "revoked/disabled", "0x18": "pre-auth failed (bad password)",
        "0x25": "clock skew (KRB_AP_ERR_SKEW)", "0x17": "password expired"}
 
@@ -161,12 +166,25 @@ def detalle(ev):
         if d.get("preauthtype") not in (None, ""):
             partes.append(f"pre-auth {d.get('preauthtype')}")
         return ", ".join(partes)
+    if eid in SESION_IDS:
+        partes = [AUDIT.get(str(ev.get("Keywords", "")).lower(), "")]
+        if eid == 4738 and d.get("passwordlastset") not in (None, "", "-"):
+            partes.append(f"PasswordLastSet {d.get('passwordlastset')}")
+        if eid in (4661, 4662):
+            partes.append(f"{d.get('objecttype', '')} {d.get('objectname', '')}".strip())
+            if d.get("accessmask"):
+                partes.append(f"access {d.get('accessmask')}")
+        if d.get("subjectlogonid"):
+            partes.append(f"session {d.get('subjectlogonid')}")
+        return ", ".join(p for p in partes if p)
     return ""
 
 
 def resumen(ev):
     d = sin_mayus(ev.get("EventData"))
     cuenta = d.get("targetusername") or d.get("subjectusername") or ""
+    if ev.get("EventId") in (4724, 4738) and d.get("subjectusername") and d.get("targetusername"):
+        cuenta = f"{d['subjectusername']} → {d['targetusername']}"   # who changed whom
     ip = (d.get("ipaddress") or "").replace("::ffff:", "")
     enc = d.get("ticketencryptiontype") or ""
     return {"cuenta": cuenta, "servicio": d.get("servicename") or "", "ip": ip,
@@ -207,15 +225,35 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
                    key=lambda e: (hora(e["TimeCreated"]), int(e.get("RecordId", 0))))
     base = resumen(registro)
     cuenta = base_cuenta(base["cuenta"])
-    ligados = [e for e in cerca if resumen(e)["ip"] == base["ip"] or base_cuenta(resumen(e)["cuenta"]) == cuenta]
+    def de_la_cuenta(e):
+        d = sin_mayus(e.get("EventData"))
+        nombre = d.get("targetusername") or d.get("subjectusername") or ""
+        return base_cuenta(nombre) == cuenta
+    ligados = [e for e in cerca if resumen(e)["ip"] == base["ip"] or de_la_cuenta(e)]
+    # Logon sessions of related events: sessions opened by them (TargetLogonId)
+    # and the acting session of a change to the account (SubjectLogonId of
+    # 4724/4738). Account-management and object-access events in those
+    # sessions, on the same computer, join the timeline.
+    sesiones = set()
+    for e in ligados:
+        d = sin_mayus(e.get("EventData"))
+        equipo = str(e.get("Computer") or "").lower()
+        sesiones.add((equipo, (d.get("targetlogonid") or "").lower()))
+        if e.get("EventId") in (4724, 4738):
+            sesiones.add((equipo, (d.get("subjectlogonid") or "").lower()))
+    sesiones = {s_ for s_ in sesiones if s_[1] not in ("", "0x0")}
+    vistos_l = {str(e.get("RecordId")) for e in ligados}
+    for e in cerca:
+        d = sin_mayus(e.get("EventData"))
+        if (e.get("EventId") in SESION_IDS and str(e.get("RecordId")) not in vistos_l
+                and (str(e.get("Computer") or "").lower(), (d.get("subjectlogonid") or "").lower()) in sesiones):
+            ligados.append(e)
+    ligados.sort(key=lambda e: (hora(e["TimeCreated"]), int(e.get("RecordId", 0))))
     filas_tl = cerca if todo else ligados
     # Hayabusa detections on records the native export does not hold (e.g.
     # 4662, 4724): added when tied to the account, the client or a logon
     # session (LogonId) of a related event.
     nativos = {str(e.get("RecordId")) for e in eventos}
-    sesiones = {(str(e.get("Computer") or "").lower(), (sin_mayus(e.get("EventData")).get("targetlogonid") or "").lower())
-                for e in ligados}
-    sesiones = {s_ for s_ in sesiones if s_[1] not in ("", "0x0")}
     solo_hb = []
     for d in hb_filas:
         rid_hb, ts = str(d.get("recordid", "")), d.get("timestamp")
@@ -227,7 +265,8 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
             solo_hb.append(d)
     out += [f"## 2. Timeline (±{ventana_min} min, UTC, DC clock)", "",
             (f"All {len(cerca)} Kerberos/logon events in the window." if todo else
-             f"Events from client {base['ip']} or for account `{cuenta}`: {len(ligados)} of {len(cerca)} "
+             f"Events from client {base['ip']}, for account `{cuenta}` or in their logon sessions: "
+             f"{len(ligados)} of {len(cerca)} "
              f"in the window; the other {len(cerca) - len(ligados)} (machine account, local service "
              f"logons) are omitted — `--all` lists them.") +
             (f" Plus {len({str(d.get('recordid')) for d in solo_hb})} record(s) only Hayabusa holds, tied by "
@@ -287,18 +326,29 @@ def informe(alerta, eventos, hayabusa, ventana_min, todo=False):
     return "\n".join(out) + "\n", ok
 
 
+def unir_eventos(rutas):
+    por_registro = {}
+    for ruta in rutas:
+        datos = leer_json(ruta)
+        if isinstance(datos, dict):  # ConvertTo-Json of a single event
+            datos = [datos]
+        for e in datos:
+            por_registro[str(e.get("RecordId"))] = e
+    return list(por_registro.values())
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--alert", required=True)
-    p.add_argument("--events", required=True)
+    p.add_argument("--events", required=True, nargs="+",
+                   help="one or more JSON exports (export_dc01_evtx.ps1, extract_native_records.ps1); "
+                        "records are merged by RecordId, a later file wins")
     p.add_argument("--hayabusa")
     p.add_argument("--window", type=int, default=10, help="minutes around the alerted record")
     p.add_argument("--all", action="store_true", help="list every event in the window, not only the related ones")
     p.add_argument("--out")
     a = p.parse_args(argv)
-    eventos = leer_json(a.events)
-    if isinstance(eventos, dict):  # ConvertTo-Json of a single event
-        eventos = [eventos]
+    eventos = unir_eventos(a.events)
     texto, ok = informe(leer_json(a.alert), eventos,
                         leer_hayabusa(a.hayabusa) if a.hayabusa else None, a.window, a.all)
     if a.out:
