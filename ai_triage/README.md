@@ -307,6 +307,37 @@ closes, even if no alert arrives. Every 0.5 s while idle it checks the path:
   `ls -li alerts.json` before and after. It travels base64-encoded so the command has no quotes to break
 on Windows, and its source is `SEGUIDOR_PY` in `wazuh_feed.py`.
 
+### Resuming after a stop
+
+On 2026-11-11 three honeytoken alerts were lost because they fired while the
+feed was stopped: the remote reader always started at the end of
+`alerts.json`. Now the remote reader tags every line with the file's inode and
+the byte offset where the line ends, and the feed keeps a checkpoint per
+manager in `casos_ad.db`:
+
+- `feed_cursor` — position of the last line fully handled. The reader also
+  emits a start mark with its initial position, recorded before the first
+  alert, so even the first alert of a first start is read again after a crash;
+- `feed_procesadas` — Wazuh alert id → case id. Written as `en_revision` in the
+  **same transaction** that saves the case, new or merged by dedup (before
+  notification and the approval prompt), and `atendida` once a row in
+  `decisiones` exists for that case. If the link write fails, the case write
+  is rolled back too: there is never a case without its link, so a
+  `--no-dedup` restart cannot open a second case for the same alert.
+
+| Situation | Behaviour |
+|---|---|
+| First start, or `--from-end` | New alerts only |
+| Restart | Continues from the recorded position: an alert written during the stop is read even if its timestamp is older than the last one handled |
+| Alert already handled (replayed) | Skipped |
+| Stop (even a hard kill) after the case was saved but before the analyst decided | The replayed alert is found as `en_revision`: the review resumes on **that** case, without triaging again — also with `--no-dedup` or an expired dedup window. Without a terminal the decision is recorded `pending`, linked to the case |
+| Case without an AI verdict | Same: the feed asks for the decision instead of leaving none |
+| File rotated or truncated since (inode changed / shorter) | Current file replayed from its start; the reader says so. Alerts between the checkpoint and the rotation stay in the rotated file |
+| `--file` replay | Never reads or writes the checkpoint |
+
+The cursor goes into the remote command, so only two non-negative integers
+are accepted.
+
 ### The analyst's keyboard belongs to the approval prompt
 
 `ssh` is started with `stdin` set to `DEVNULL`. In the 2026-11-11 live run it

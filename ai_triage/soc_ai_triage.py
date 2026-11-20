@@ -626,7 +626,30 @@ def evaluar_caso(conn, caso_id, esperado):
     }
 
 
-def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
+def confirmar_caso(conn, caso_id, al_guardar=None):
+    """Commit the pending case write (new case or merge) together with the
+    caller's link in ONE transaction.
+
+    `al_guardar(caso_id)` runs while the case INSERT/UPDATE is still
+    uncommitted, so its writes join the same transaction; it must not commit.
+    Either both are stored or neither is: if the link fails (or the process is
+    interrupted inside it), the case write is rolled back and the error is
+    raised, so a restart sees the alert as never handled instead of finding a
+    case with no link (which --no-dedup would duplicate)."""
+    try:
+        if al_guardar:
+            al_guardar(caso_id)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=None):
+    """Triage one alert. `al_guardar(caso_id)`, if given, is called inside the
+    transaction that saves the case (new or merged), before the commit and
+    before the analyst is notified or asked: a caller links its own reference
+    to the case atomically with it (see confirmar_caso)."""
     alerta = limpiar(alerta)
     if int(alerta.get("level", 0)) < MIN_LEVEL:
         print(f"[SKIP] Regla {alerta.get('rule_id')} nivel {alerta.get('level')} < {MIN_LEVEL}, no se triagea")
@@ -640,7 +663,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
     if existente:
         caso_id, conteo = existente
         conn.execute("UPDATE casos SET ultima_deteccion=?, conteo=? WHERE id=?", (ahora, conteo + 1, caso_id))
-        conn.commit()
+        confirmar_caso(conn, caso_id, al_guardar)
         print(f"[DEDUP] Caso {caso_id} actualizado (conteo={conteo + 1})")
         return caso_id
 
@@ -692,7 +715,7 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input):
             prioridad, confianza, accion, estado,
         ),
     )
-    conn.commit()
+    confirmar_caso(conn, caso_id, al_guardar)
     notificar(caso_id, alerta, analisis, estado, relacionado)
     if estado == "analizado":
         print(f"  [métricas] latencia={metricas['latencia_s']}s "
@@ -730,6 +753,7 @@ def main():
                   f"(costo ${e.metricas.get('costo_usd')}, stop_reason={e.metricas.get('stop_reason')}). "
                   f"Costo acumulado ${round(costo, 6)}. No hay {EVAL_RESULTS} de esta corrida "
                   f"(el de corridas anteriores se borró al iniciar).")
+            conn.close()   # an open handle keeps casos_ad.db locked on Windows
             sys.exit(EXIT_AUDITORIA)
         met = res[1] if isinstance(res, tuple) else None
         if met and met.get("latencia_s"):  # every model call, accepted or rejected

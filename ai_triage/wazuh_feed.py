@@ -18,6 +18,21 @@ Usage
 Flags
   --all     triage every alert at level >= MIN_LEVEL, not only Nimbrek rules
   --no-dedup  open a new case for every alert
+  --from-end  live mode: ignore the checkpoint and start with new alerts only
+
+Live mode resumes after a stop. The remote reader tags every line with the
+file's inode and the byte offset where the line ends; after each alert is
+handled (triage AND a row in `decisiones`), that position and the alert id are
+recorded in casos_ad.db for this manager (feed_cursor, feed_procesadas); the
+alert -> case link is written as soon as the case is saved, so an interrupted
+review is resumed on the same case. The reader's start position is recorded
+before the first alert. On
+start the reader continues from the recorded position, so an alert written
+during the stop is read even if its timestamp is older than the last one
+handled; an alert already handled is skipped. If the file was rotated or
+truncated since (inode changed or file shorter), the current file is replayed
+from its start and the reader says so; alerts between the checkpoint and the
+rotation stay in the rotated file. --file never reads or writes the checkpoint.
 
 The SSH user needs read access to /var/ossec/logs/alerts/alerts.json
 (one-time, on the manager:  sudo usermod -aG wazuh <usuario>  then log in again).
@@ -34,6 +49,7 @@ import base64
 import queue
 import threading
 import subprocess
+from datetime import datetime, timezone
 
 import soc_ai_triage as triage
 
@@ -118,7 +134,7 @@ def califica(alerta, todas):
     return todas or alerta["rule_id"].startswith("1002")
 
 
-def comando_ssh(destino):
+def comando_ssh(destino, cursor=None):
     # -T: no remote TTY. BatchMode: key-based auth only, so a rejected key fails
     #     fast instead of silently waiting on a password prompt.
     # ServerAlive*: detect a dead manager instead of hanging forever.
@@ -126,7 +142,7 @@ def comando_ssh(destino):
         "ssh", "-T",
         "-o", "BatchMode=yes",
         "-o", "ServerAliveInterval=30", "-o", "ServerAliveCountMax=3",
-        destino, comando_remoto(),
+        destino, comando_remoto(cursor=cursor),
     ]
 
 
@@ -144,6 +160,10 @@ SEGUIDOR_PY = r'''# Remote alerts.json follower (runs on the manager under pytho
 # reopens the file when it is rotated (new inode) or truncated.
 import os, sys, time, select
 path = sys.argv[1]
+# Optional cursor (inode, byte offset) from the last handled line: continue
+# from there. Without it, start at the end. Every emitted line is prefixed
+# with "@<inode>:<offset after the line> " so the client can record it.
+cursor = (int(sys.argv[2]), int(sys.argv[3])) if len(sys.argv) > 3 else None
 # Exit when the reader side is gone (SSH session closed), even if no alert
 # arrives to trigger a broken-pipe error: POLLERR/POLLHUP are always reported.
 salida = select.poll()
@@ -151,15 +171,26 @@ salida.register(sys.stdout.fileno(), 0)
 sys.stderr.write("wazuh_feed: remote reader pid %d\n" % os.getpid())
 sys.stderr.flush()
 f = open(path, "rb")
-f.seek(0, 2)
 ino = os.fstat(f.fileno()).st_ino
+if cursor is None:
+    f.seek(0, 2)
+elif cursor[0] == ino and cursor[1] <= os.fstat(f.fileno()).st_size:
+    f.seek(cursor[1])
+else:
+    sys.stderr.write("wazuh_feed: alerts.json was rotated or truncated since the checkpoint; "
+                     "replaying the current file from its start\n")
+    sys.stderr.flush()
+# Start mark: where reading begins, before any alert. The client records it at
+# once, so even the first alert of a first start is read again after a stop.
+sys.stdout.buffer.write(b"@%d:%d #start\n" % (ino, f.tell()))
+sys.stdout.flush()
 pend = b""
 while True:
     chunk = f.readline()
     if chunk:
         pend += chunk
         if pend.endswith(b"\n"):
-            sys.stdout.buffer.write(pend)
+            sys.stdout.buffer.write(b"@%d:%d " % (ino, f.tell()) + pend)
             sys.stdout.flush()
             pend = b""
         continue
@@ -178,7 +209,7 @@ while True:
 '''
 
 
-def comando_remoto(ruta=None):
+def comando_remoto(ruta=None, cursor=None):
     """Remote shell command run by the live session.
 
     * Preflight: an unreadable file must fail visibly; exit EXIT_REMOTE_NO_READ.
@@ -188,9 +219,16 @@ def comando_remoto(ruta=None):
       test can stop exactly this session without touching other SSH sessions.
     """
     ruta = ruta or ALERTS_PATH
+    extra = ""
+    if cursor is not None:
+        ino, pos = cursor
+        if not (type(ino) is int and type(pos) is int and ino >= 0 and pos >= 0):
+            # It ends up in a remote shell command: two non-negative integers only.
+            raise ValueError(f"cursor inválido: {cursor!r}")
+        extra = f" {ino} {pos}"
     b64 = base64.b64encode(SEGUIDOR_PY.encode()).decode()
     return (f"test -r {ruta} || {{ echo wazuh_feed: cannot read {ruta} >&2; exit {EXIT_REMOTE_NO_READ}; }}; "
-            f"echo {b64} | base64 -d | python3 -u - {ruta}")
+            f"echo {b64} | base64 -d | python3 -u - {ruta}{extra}")
 
 
 def _detener(proc):
@@ -204,7 +242,7 @@ def _detener(proc):
     return proc.wait()
 
 
-def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX):
+def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX, cursor=None):
     """Yield alert lines from the manager as they are written.
 
     Two different endings:
@@ -220,7 +258,7 @@ def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX):
     pipe read on Windows is not interrupted by Ctrl+C). ssh's stderr is
     inherited, so its own diagnostics stay on stderr.
     """
-    cmd = comando_ssh(destino)
+    cmd = comando_ssh(destino, cursor)
     print(f"Escuchando alertas en vivo: {' '.join(cmd)}  (Ctrl+C para salir)\n")
     grupo = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
              else {"start_new_session": True})
@@ -283,6 +321,94 @@ def lineas_ssh(destino, eof_wait=EOF_WAIT_S, cola_max=QUEUE_MAX):
     raise StreamCerrado(codigo)  # only reached after an unexpected EOF
 
 
+# --------------------------------------------------------------------------- #
+# Checkpoint (live mode only): per manager, what this feed already handled
+# --------------------------------------------------------------------------- #
+def init_checkpoint(conn):
+    conn.execute("""CREATE TABLE IF NOT EXISTS feed_cursor (
+        manager TEXT PRIMARY KEY, inode INTEGER, posicion INTEGER, momento TEXT)""")
+    conn.execute("""CREATE TABLE IF NOT EXISTS feed_procesadas (
+        manager TEXT, wazuh_id TEXT, caso_id TEXT,
+        estado TEXT,            -- en_revision (case saved) | atendida (decision recorded)
+        momento TEXT,
+        PRIMARY KEY (manager, wazuh_id))""")
+    conn.commit()
+
+
+def manager_de(destino):
+    """Checkpoint key: the host part of user@host."""
+    return destino.rsplit("@", 1)[-1].lower()
+
+
+def cursor_guardado(conn, manager):
+    fila = conn.execute("SELECT inode, posicion FROM feed_cursor WHERE manager=?", (manager,)).fetchone()
+    return (int(fila[0]), int(fila[1])) if fila else None
+
+
+def guardar_cursor(conn, manager, cursor):
+    if cursor is None:
+        return
+    conn.execute("INSERT OR REPLACE INTO feed_cursor VALUES (?,?,?,?)",
+                 (manager, cursor[0], cursor[1], datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+
+
+def estado_alerta(conn, manager, wazuh_id):
+    """(estado, caso_id) of an alert this feed already took, or (None, None)."""
+    fila = wazuh_id is not None and conn.execute(
+        "SELECT estado, caso_id FROM feed_procesadas WHERE manager=? AND wazuh_id=?",
+        (manager, wazuh_id)).fetchone()
+    return tuple(fila) if fila else (None, None)
+
+
+def vincular_caso(conn, manager, alerta, caso_id):
+    """Alert -> case link ('en_revision'), independent of content dedup.
+
+    Called by procesar_alerta inside the transaction that saves the case (new
+    or merged), before notification and the approval prompt. It does NOT
+    commit: triage.confirmar_caso commits case and link together, or rolls
+    both back if this write fails."""
+    conn.execute("INSERT OR REPLACE INTO feed_procesadas VALUES (?,?,?,?,?)",
+                 (manager, alerta.get("_wazuh_id"), caso_id, "en_revision", datetime.now(timezone.utc).isoformat()))
+
+
+def marcar_atendida(conn, manager, alerta, caso_id):
+    conn.execute("INSERT OR REPLACE INTO feed_procesadas VALUES (?,?,?,?,?)",
+                 (manager, alerta.get("_wazuh_id"), caso_id, "atendida", datetime.now(timezone.utc).isoformat()))
+    conn.commit()
+
+
+def separar_cursor(linea):
+    """'@<inode>:<offset> {json}' -> ((inode, offset), '{json}'); untagged -> (None, line)."""
+    if linea.startswith("@"):
+        cabeza, _, resto = linea.partition(" ")
+        try:
+            ino, pos = cabeza[1:].split(":")
+            return (int(ino), int(pos)), resto
+        except ValueError:
+            pass
+    return None, linea
+
+
+def asegurar_decision(conn, caso_id, entrada=input):
+    """Every case reached by the live feed ends with a row in `decisiones`.
+
+    procesar_alerta stores the case before notifying and asking the analyst.
+    If the feed stopped in between, the replayed alert is merged into that
+    case by dedup (counter only) and nobody is asked; a case without an AI
+    verdict is never asked either. Ask now; without a terminal the gate
+    records 'pending', linked to the case."""
+    if not caso_id or conn.execute("SELECT 1 FROM decisiones WHERE caso_id=?", (caso_id,)).fetchone():
+        return
+    fila = conn.execute("SELECT analisis_ia, accion_sugerida FROM casos WHERE id=?", (caso_id,)).fetchone()
+    if not fila:
+        return
+    analisis = json.loads(fila[0]) if fila[0] else {"accion_sugerida": fila[1] or "manual_review"}
+    print(f"  Caso {caso_id} sin decisión registrada (interrupción anterior o sin análisis de IA): "
+          f"se pide ahora.")
+    triage.solicitar_aprobacion(conn, caso_id, analisis, entrada=entrada)
+
+
 def lineas_archivo(ruta):
     f = sys.stdin if ruta == "-" else open(ruta, encoding="utf-8", errors="replace")
     with f:
@@ -294,15 +420,12 @@ def main():
     argv = sys.argv[1:]
     todas = "--all" in argv
     forzar = "--no-dedup" in argv
+    desde_el_final = "--from-end" in argv
 
     def valor(flag):
         return argv[argv.index(flag) + 1] if flag in argv and argv.index(flag) + 1 < len(argv) else None
 
-    if valor("--ssh"):
-        fuente = lineas_ssh(valor("--ssh"))
-    elif valor("--file"):
-        fuente = lineas_archivo(valor("--file"))
-    else:
+    if not (valor("--ssh") or valor("--file")):
         print(__doc__)
         sys.exit(1)
 
@@ -314,27 +437,68 @@ def main():
         print(f"Modo={triage.MODE} | nivel mínimo {triage.MIN_LEVEL} | "
               f"{'todas las reglas' if todas else 'solo reglas Nimbrek (1002xx)'}\n")
 
+    # Checkpoint only for live mode with triage, keyed by manager.
+    manager = manager_de(valor("--ssh")) if (valor("--ssh") and conn) else None
+    if manager:
+        init_checkpoint(conn)
+    if valor("--ssh"):
+        cursor = None if (desde_el_final or not manager) else cursor_guardado(conn, manager)
+        print(f"Retomando {manager} desde la posición {cursor[1]} (inode {cursor[0]})." if cursor
+              else "Sin punto de retoma: se escuchan solo las alertas nuevas.")
+        fuente = lineas_ssh(valor("--ssh"), cursor=cursor)
+    else:
+        fuente = lineas_archivo(valor("--file"))
+    atendida = None   # position of the last line fully handled
+
     try:
         for linea in fuente:
-            linea = linea.strip()
+            pos, linea = separar_cursor(linea.strip())
             if not linea.startswith("{"):
+                atendida = pos or atendida
+                if manager and linea == "#start":
+                    guardar_cursor(conn, manager, atendida)   # before the first alert
                 continue
             try:
                 alerta = convertir(json.loads(linea))
             except (json.JSONDecodeError, ValueError, TypeError):
+                atendida = pos or atendida
                 continue
             if not califica(alerta, todas) or alerta["_wazuh_id"] in vistos:
                 if not salida and alerta["rule_id"].startswith("1002"):
                     # Visible trace so a live run is never silent about what it saw
                     print(f"  · recibida regla {alerta['rule_id']} nivel {alerta['level']} (no se triagea)")
+                atendida = pos or atendida
                 continue
             vistos.add(alerta["_wazuh_id"])
             if salida:
                 convertidas.append(alerta)
                 continue
+            if manager:
+                estado, caso_previo = estado_alerta(conn, manager, alerta["_wazuh_id"])
+                if estado == "atendida":
+                    print(f"  · alerta {alerta['_wazuh_id']} ya atendida antes, se omite")
+                    atendida = pos or atendida
+                    continue
+                if estado == "en_revision":
+                    # Case saved in an earlier run, review not finished: resume
+                    # it on that case, without triaging again (dedup or not).
+                    print(f"  · alerta {alerta['_wazuh_id']}: retomando la revisión del caso {caso_previo}")
+                    asegurar_decision(conn, caso_previo)
+                    marcar_atendida(conn, manager, alerta, caso_previo)
+                    atendida = pos or atendida
+                    guardar_cursor(conn, manager, atendida)
+                    continue
             print(f"\n>>> Wazuh {alerta['timestamp']} regla {alerta['rule_id']} "
                   f"(nivel {alerta['level']}) {alerta['src_ip']} -> {alerta['dest_ip']}")
-            triage.procesar_alerta(conn, alerta, forzar_nuevo=forzar)
+            vinculo = (lambda caso, a=alerta: vincular_caso(conn, manager, a, caso)) if manager else None
+            res = triage.procesar_alerta(conn, alerta, forzar_nuevo=forzar, al_guardar=vinculo)
+            caso_id = res[0] if isinstance(res, tuple) else res
+            if manager:
+                asegurar_decision(conn, caso_id)
+                # 'atendida' only now: a stop before this point resumes the review.
+                marcar_atendida(conn, manager, alerta, caso_id)
+                atendida = pos or atendida
+                guardar_cursor(conn, manager, atendida)
     except KeyboardInterrupt:
         print("\nDetenido por el analista.")
     except StreamCerrado as e:
@@ -344,16 +508,28 @@ def main():
                   f"    ssh -o BatchMode=yes {valor('--ssh')} \"echo ok\"", file=sys.stderr)
         codigo_salida = EXIT_STREAM_LOST
     finally:
-        # Voluntary stop: closing the generator stops and reaps ssh.
-        if hasattr(fuente, "close"):
-            fuente.close()
+        # Each step runs even if the one before it fails. If several fail,
+        # Python raises the last error and keeps the earlier one as its
+        # __context__.
+        try:
+            # Voluntary stop: closing the generator stops and reaps ssh.
+            if hasattr(fuente, "close"):
+                fuente.close()
+        finally:
+            try:
+                if manager:
+                    # Lines skipped since the last alert are not read again.
+                    guardar_cursor(conn, manager, atendida)
+            finally:
+                # Also on an unexpected error: an open handle keeps
+                # casos_ad.db locked on Windows.
+                if conn:
+                    conn.close()
 
     if salida:
         with open(salida, "w", encoding="utf-8") as f:
             json.dump(convertidas, f, ensure_ascii=False, indent=2)
         print(f"{len(convertidas)} alertas convertidas -> {salida}")
-    if conn:
-        conn.close()
     return codigo_salida
 
 

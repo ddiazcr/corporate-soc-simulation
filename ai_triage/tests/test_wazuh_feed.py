@@ -30,6 +30,8 @@ import unittest
 import subprocess
 
 AI_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # tests/: aislamiento
+import aislamiento  # noqa: E402,F401  (first: clears TELEGRAM_*/ANTHROPIC_API_KEY/AI_MODE)
 sys.path.insert(0, AI_DIR)
 
 import wazuh_feed  # noqa: E402
@@ -257,7 +259,10 @@ class StandInSshTests(unittest.TestCase):
 
             def esperar_linea():
                 try:
-                    resultado["linea"] = next(gen)
+                    linea = next(gen)
+                    while wazuh_feed.separar_cursor(linea.strip())[1] == "#start":
+                        linea = next(gen)          # the follower's start mark, not an alert
+                    resultado["linea"] = linea
                 except BaseException as e:   # StreamCerrado once the group is killed
                     resultado["error"] = e
 
@@ -289,7 +294,9 @@ class StandInSshTests(unittest.TestCase):
                 time.sleep(1.2)          # follower polls in between
                 f.write(ALERT_100212[mitad:] + "\n")
         line = self._seguir(alerts, escribir_en_dos_partes)
-        self.assertEqual(line.strip(), ALERT_100212)   # one complete line, not two halves
+        pos, cuerpo = wazuh_feed.separar_cursor(line.strip())
+        self.assertEqual(cuerpo, ALERT_100212)   # one complete line, not two halves
+        self.assertEqual(pos, (os.stat(alerts).st_ino, os.path.getsize(alerts)))   # cursor = end of that line
 
     def test_follower_reopens_a_rotated_file(self):
         alerts = os.path.join(self.tmp.name, "alerts.json")
