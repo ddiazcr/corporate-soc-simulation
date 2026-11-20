@@ -1,0 +1,14 @@
+# casos_ad.db on the analysis host after the run (2026-11-20). Output as printed.
+('c43f86fb474df50a-f82742e7', '100230', 2, 'high', 'escalate_tier2', '2026-11-20T12:32:07.695254+00:00') | decisiones: [('rejected', 'analista', '2026-11-20T12:34:35.435128+00:00')] | alertas vinculadas: 2 [('1795067214.3795420', 'atendida'), ('1795067215.3817031', 'atendida')]
+('c43f86fb474df50a-721abfea', '100230', 8, 'high', 'escalate_tier2', '2026-11-20T12:34:35.543140+00:00') | decisiones: [('rejected', 'analista', '2026-11-20T12:36:27.446562+00:00')] | alertas vinculadas: 8 [('1795067214.3800163', 'atendida'), ('1795067214.3804380', 'atendida')]
+('0349b7ae4fc990c2-57235fc9', '100220', 1, 'critical', 'escalate_tier2', '2026-11-20T12:37:37.613717+00:00') | decisiones: [('rejected', 'analista', '2026-11-20T12:43:15.670876+00:00')] | alertas vinculadas: 1 [('1795071061.6168946', 'atendida')]
+casos: 74 | decisiones: 74
+
+# DC01, the 100220 trigger (privileged-group add, then immediate removal):
+PS> Add-ADGroupMember -Identity 'Domain Admins' -Members crojas -Confirm:$false
+PS> Start-Sleep -Seconds 5
+PS> Remove-ADGroupMember -Identity 'Domain Admins' -Members crojas -Confirm:$false
+PS> (Get-ADGroupMember 'Domain Admins').SamAccountName
+Administrator
+PS> (Get-Date).ToUniversalTime().ToString('o')
+2026-11-20T12:36:39.9952789Z
