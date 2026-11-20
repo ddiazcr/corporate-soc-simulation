@@ -1,0 +1,76 @@
+{
+  "timestamp": "2026-11-11T19:28:28.602+0000",
+  "rule": {
+    "level": 12,
+    "description": "Nimbrek: Kerberos ticket requested for honeytoken svc_sql_backup from ::ffff:192.168.56.103 - Kerberoasting",
+    "id": "100212",
+    "mitre": {
+      "id": [
+        "T1558.003"
+      ],
+      "tactic": [
+        "Credential Access"
+      ],
+      "technique": [
+        "Kerberoasting"
+      ]
+    },
+    "firedtimes": 1,
+    "mail": true,
+    "groups": [
+      "nimbrek",
+      "active_directory",
+      "attack",
+      "kerberos",
+      "honeytoken"
+    ]
+  },
+  "agent": {
+    "id": "004",
+    "name": "DC01",
+    "ip": "192.168.56.10"
+  },
+  "manager": {
+    "name": "wazuh-server"
+  },
+  "id": "1794425308.5864804",
+  "full_log": "{\"win\":{\"system\":{\"providerName\":\"Microsoft-Windows-Security-Auditing\",\"providerGuid\":\"{54849625-5478-4994-a5ba-3e3b0328c30d}\",\"eventID\":\"4769\",\"version\":\"0\",\"level\":\"0\",\"task\":\"14337\",\"opcode\":\"0\",\"keywords\":\"0x8020000000000000\",\"systemTime\":\"2026-11-15T21:37:36.3275507Z\",\"eventRecordID\":\"256462\",\"processID\":\"652\",\"threadID\":\"2228\",\"channel\":\"Security\",\"computer\":\"DC01.lab.local\",\"severityValue\":\"AUDIT_SUCCESS\",\"message\":\"\\\"A Kerberos service ticket was requested.\\r\\n\\r\\nAccount Information:\\r\\n\\tAccount Name:\\t\\tcrojas@LAB.LOCAL\\r\\n\\tAccount Domain:\\t\\tLAB.LOCAL\\r\\n\\tLogon GUID:\\t\\t{eb7ee933-b7ca-449c-a396-babe91293ca4}\\r\\n\\r\\nService Information:\\r\\n\\tService Name:\\t\\tsvc_sql_backup\\r\\n\\tService ID:\\t\\tS-1-5-21-153885558-3855985122-1781076326-1114\\r\\n\\r\\nNetwork Information:\\r\\n\\tClient Address:\\t\\t::ffff:192.168.56.103\\r\\n\\tClient Port:\\t\\t59238\\r\\n\\r\\nAdditional Information:\\r\\n\\tTicket Options:\\t\\t0x40810010\\r\\n\\tTicket Encryption Type:\\t0x17\\r\\n\\tFailure Code:\\t\\t0x0\\r\\n\\tTransited Services:\\t-\\r\\n\\r\\nThis event is generated every time access is requested to a resource such as a computer or a Windows service.  The service name indicates the resource to which access was requested.\\r\\n\\r\\nThis event can be correlated with Windows logon events by comparing the Logon GUID fields in each event.  The logon event occurs on the machine that was accessed, which is often a different machine than the domain controller which issued the service ticket.\\r\\n\\r\\nTicket options, encryption types, and failure codes are defined in RFC 4120.\\\"\"},\"eventdata\":{\"targetUserName\":\"crojas@LAB.LOCAL\",\"targetDomainName\":\"LAB.LOCAL\",\"serviceName\":\"svc_sql_backup\",\"serviceSid\":\"S-1-5-21-153885558-3855985122-1781076326-1114\",\"ticketOptions\":\"0x40810010\",\"ticketEncryptionType\":\"0x17\",\"ipAddress\":\"::ffff:192.168.56.103\",\"ipPort\":\"59238\",\"status\":\"0x0\",\"logonGuid\":\"{eb7ee933-b7ca-449c-a396-babe91293ca4}\"}}}",
+  "decoder": {
+    "name": "windows_eventchannel"
+  },
+  "data": {
+    "win": {
+      "system": {
+        "providerName": "Microsoft-Windows-Security-Auditing",
+        "providerGuid": "{54849625-5478-4994-a5ba-3e3b0328c30d}",
+        "eventID": "4769",
+        "version": "0",
+        "level": "0",
+        "task": "14337",
+        "opcode": "0",
+        "keywords": "0x8020000000000000",
+        "systemTime": "2026-11-15T21:37:36.3275507Z",
+        "eventRecordID": "256462",
+        "processID": "652",
+        "threadID": "2228",
+        "channel": "Security",
+        "computer": "DC01.lab.local",
+        "severityValue": "AUDIT_SUCCESS",
+        "message": "\"A Kerberos service ticket was requested.\r\n\r\nAccount Information:\r\n\tAccount Name:\t\tcrojas@LAB.LOCAL\r\n\tAccount Domain:\t\tLAB.LOCAL\r\n\tLogon GUID:\t\t{eb7ee933-b7ca-449c-a396-babe91293ca4}\r\n\r\nService Information:\r\n\tService Name:\t\tsvc_sql_backup\r\n\tService ID:\t\tS-1-5-21-153885558-3855985122-1781076326-1114\r\n\r\nNetwork Information:\r\n\tClient Address:\t\t::ffff:192.168.56.103\r\n\tClient Port:\t\t59238\r\n\r\nAdditional Information:\r\n\tTicket Options:\t\t0x40810010\r\n\tTicket Encryption Type:\t0x17\r\n\tFailure Code:\t\t0x0\r\n\tTransited Services:\t-\r\n\r\nThis event is generated every time access is requested to a resource such as a computer or a Windows service.  The service name indicates the resource to which access was requested.\r\n\r\nThis event can be correlated with Windows logon events by comparing the Logon GUID fields in each event.  The logon event occurs on the machine that was accessed, which is often a different machine than the domain controller which issued the service ticket.\r\n\r\nTicket options, encryption types, and failure codes are defined in RFC 4120.\""
+      },
+      "eventdata": {
+        "targetUserName": "crojas@LAB.LOCAL",
+        "targetDomainName": "LAB.LOCAL",
+        "serviceName": "svc_sql_backup",
+        "serviceSid": "S-1-5-21-153885558-3855985122-1781076326-1114",
+        "ticketOptions": "0x40810010",
+        "ticketEncryptionType": "0x17",
+        "ipAddress": "::ffff:192.168.56.103",
+        "ipPort": "59238",
+        "status": "0x0",
+        "logonGuid": "{eb7ee933-b7ca-449c-a396-babe91293ca4}"
+      }
+    }
+  },
+  "location": "EventChannel"
+}

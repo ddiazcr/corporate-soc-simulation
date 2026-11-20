@@ -1,0 +1,38 @@
+# Engine test for rules 100210 / 100212
+
+`run_engine_test.py` checks, on the real manager, which rule the engine
+applies to a 4769 before and after a new version of the NIMBREK rules is
+installed, and rolls back if the result is not the expected one.
+
+The repository file is `rules/local_rules.xml`, but the manager may keep these
+rules in another file of `etc/rules` (in this lab, `nimbrek_rules.xml`, next
+to a `local_rules.xml` that holds the Suricata rule 100101). The script
+replaces the one file that defines the new rule IDs, and stops without
+changing anything if those IDs appear in more than one file: Wazuh keeps only
+the first copy it loads (warning 7612), so the test would measure whichever
+copy wins. Before "before", it restarts the manager with the rules on disk, so
+"before" never measures rules an interrupted earlier run left in memory. See the script's docstring
+for the method and why `wazuh-logtest` cannot test eventchannel events in
+4.9.2.
+
+```powershell
+# Analyst host, repo on the branch under test; stop the AI feed first
+ssh wazuhadmin@192.168.56.102 "mkdir -p /tmp/nimbrek"
+scp rules\local_rules.xml rules\engine_test\run_engine_test.py wazuhadmin@192.168.56.102:/tmp/nimbrek/
+```
+```bash
+# From a terminal where sudo can prompt (Kali): on the manager
+ssh wazuhadmin@192.168.56.102
+sudo python3 /tmp/nimbrek/run_engine_test.py /tmp/nimbrek/local_rules.xml
+```
+```powershell
+# Back on the analyst host: keep the evidence
+scp wazuhadmin@192.168.56.102:/tmp/nimbrek/engine_test_results.json .
+```
+
+Expected after the new rules: `honeytoken-loopback`, `honeytoken-dc-fqdn` and
+`honeytoken-network` -> 100212; `aes-legit` -> an alert decoded as
+`windows_eventchannel` whose rule is not 100210/100211/100212 (no alert = failure).
+On any failure, error or Ctrl+C after the XML is replaced, the previous rules
+are restored and the manager is checked to work again (canary event alerted).
+Live ingestion from Kali is a separate check.

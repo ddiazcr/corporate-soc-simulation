@@ -1,0 +1,81 @@
+{
+  "momento_utc": "2026-11-11T18:42:32Z",
+  "fidelidad": "regla 100212; campos idénticos",
+  "instalada": true,
+  "error": null,
+  "manager_recuperado": null,
+  "archivo": "/var/ossec/etc/rules/nimbrek_rules.xml",
+  "sha256_antes": "743abf68a65dcb7bcd3a6c6bb429073c626090b176d95ce0f467de1abed9d10e",
+  "sha256_nuevas": "6a7bcac18c8f7d00c4a83b2f1e3541bda839876dea957a0ab77c41f009cbb8cc",
+  "respaldo": "/var/ossec/etc/rules/nimbrek_rules.xml.bak-20261111-184143",
+  "antes": {
+    "honeytoken-loopback": {
+      "marca": 9094422443,
+      "regla": "100212",
+      "nivel": 12,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::1"
+    },
+    "honeytoken-dc-fqdn": {
+      "marca": 9094422444,
+      "regla": null,
+      "nivel": null,
+      "decoder": null,
+      "eventID": null,
+      "ipAddress": null
+    },
+    "honeytoken-network": {
+      "marca": 9094422445,
+      "regla": null,
+      "nivel": null,
+      "decoder": null,
+      "eventID": null,
+      "ipAddress": null
+    },
+    "aes-legit": {
+      "marca": 9094422446,
+      "regla": "60106",
+      "nivel": 3,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::1"
+    }
+  },
+  "despues": {
+    "honeytoken-loopback": {
+      "marca": 9094422448,
+      "regla": "100212",
+      "nivel": 12,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::1"
+    },
+    "honeytoken-dc-fqdn": {
+      "marca": 9094422449,
+      "regla": "100212",
+      "nivel": 12,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::ffff:192.168.56.10"
+    },
+    "honeytoken-network": {
+      "marca": 9094422450,
+      "regla": "100212",
+      "nivel": 12,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::ffff:192.168.56.103"
+    },
+    "aes-legit": {
+      "marca": 9094422451,
+      "regla": "60106",
+      "nivel": 3,
+      "decoder": "windows_eventchannel",
+      "eventID": "4769",
+      "ipAddress": "::1"
+    }
+  },
+  "muestra_honeytoken": "{\"Message\": \"\\\"A Kerberos service ticket was requested.\\r\\n\\r\\nAccount Information:\\r\\n\\tAccount Name:\\t\\tAdministrator@LAB.LOCAL\\r\\n\\tAccount Domain:\\t\\tLAB.LOCAL\\r\\n\\tLogon GUID:\\t\\t{89065e34-7810-fbdd-7dc4-ff50513ff13d}\\r\\n\\r\\nService Information:\\r\\n\\tService Name:\\t\\tsvc_sql_backup\\r\\n\\tService ID:\\t\\tS-1-5-21-153885558-3855985122-1781076326-1114\\r\\n\\r\\nNetwork Information:\\r\\n\\tClient Address:\\t\\t::1\\r\\n\\tClient Port:\\t\\t0\\r\\n\\r\\nAdditional Information:\\r\\n\\tTicket Options:\\t\\t0x40810000\\r\\n\\tTicket Encryption Type:\\t0x17\\r\\n\\tFailure Code:\\t\\t0x0\\r\\n\\tTransited Services:\\t-\\r\\n\\r\\nThis event is generated every time access is requested to a resource such as a computer or a Windows service.  The service name indicates the resource to which access was requested.\\r\\n\\r\\nThis event can be correlated with Windows logon events by comparing the Logon GUID fields in each event.  The logon event occurs on the machine that was accessed, which is often a different machine than the domain controller which issued the service ticket.\\r\\n\\r\\nTicket options, encryption types, and failure codes are defined in RFC 4120.\\\"\", \"Event\": \"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4769</EventID><Version>0</Version><Level>0</Level><Task>14337</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2026-11-11T16:45:06.3653684Z'/><EventRecordID>0</EventRecordID><Correlation/><Execution ProcessID='652' ThreadID='1728'/><Channel>Security</Channel><Computer>DC01.lab.local</Computer><Security/></System><EventData><Data Name='TargetUserName'>Administrator@LAB.LOCAL</Data><Data Name='TargetDomainName'>LAB.LOCAL</Data><Data Name='ServiceName'>svc_sql_backup</Data><Data Name='ServiceSid'>S-1-5-21-153885558-3855985122-1781076326-1114</Data><Data Name='TicketOptions'>0x40810000</Data><Data Name='TicketEncryptionType'>0x17</Data><Data Name='IpAddress'>::1</Data><Data Name='IpPort'>0</Data><Data Name='Status'>0x0</Data><Data Name='LogonGuid'>{89065e34-7810-fbdd-7dc4-ff50513ff13d}</Data></EventData></Event>\"}",
+  "muestra_aes": "{\"Message\": \"\\\"A Kerberos service ticket was requested.\\r\\n\\r\\nAccount Information:\\r\\n\\tAccount Name:\\t\\tDC01$@LAB.LOCAL\\r\\n\\tAccount Domain:\\t\\tLAB.LOCAL\\r\\n\\tLogon GUID:\\t\\t{9f4743e7-10f3-94be-3b89-41439108c097}\\r\\n\\r\\nService Information:\\r\\n\\tService Name:\\t\\tDC01$\\r\\n\\tService ID:\\t\\tS-1-5-21-153885558-3855985122-1781076326-1000\\r\\n\\r\\nNetwork Information:\\r\\n\\tClient Address:\\t\\t::1\\r\\n\\tClient Port:\\t\\t0\\r\\n\\r\\nAdditional Information:\\r\\n\\tTicket Options:\\t\\t0x40810000\\r\\n\\tTicket Encryption Type:\\t0x12\\r\\n\\tFailure Code:\\t\\t0x0\\r\\n\\tTransited Services:\\t-\\r\\n\\r\\nThis event is generated every time access is requested to a resource such as a computer or a Windows service.  The service name indicates the resource to which access was requested.\\r\\n\\r\\nThis event can be correlated with Windows logon events by comparing the Logon GUID fields in each event.  The logon event occurs on the machine that was accessed, which is often a different machine than the domain controller which issued the service ticket.\\r\\n\\r\\nTicket options, encryption types, and failure codes are defined in RFC 4120.\\\"\", \"Event\": \"<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='Microsoft-Windows-Security-Auditing' Guid='{54849625-5478-4994-a5ba-3e3b0328c30d}'/><EventID>4769</EventID><Version>0</Version><Level>0</Level><Task>14337</Task><Opcode>0</Opcode><Keywords>0x8020000000000000</Keywords><TimeCreated SystemTime='2026-11-15T20:04:27.3925998Z'/><EventRecordID>0</EventRecordID><Correlation/><Execution ProcessID='652' ThreadID='1728'/><Channel>Security</Channel><Computer>DC01.lab.local</Computer><Security/></System><EventData><Data Name='TargetUserName'>DC01$@LAB.LOCAL</Data><Data Name='TargetDomainName'>LAB.LOCAL</Data><Data Name='ServiceName'>DC01$</Data><Data Name='ServiceSid'>S-1-5-21-153885558-3855985122-1781076326-1000</Data><Data Name='TicketOptions'>0x40810000</Data><Data Name='TicketEncryptionType'>0x12</Data><Data Name='IpAddress'>::1</Data><Data Name='IpPort'>0</Data><Data Name='Status'>0x0</Data><Data Name='LogonGuid'>{9f4743e7-10f3-94be-3b89-41439108c097}</Data></EventData></Event>\"}"
+}
