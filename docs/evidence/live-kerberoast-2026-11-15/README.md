@@ -24,6 +24,8 @@ to get past `KRB_AP_ERR_SKEW` before the ticket was issued — a lab clock
 problem, not part of the detection. The Wazuh manager's clock was also frozen
 at 2026-11-11, which is why the alert timestamp reads that date.
 
+> **Clarification added 2026-11-20.** During the test a skew was observed and Kali was set to DC01's time. A later review found clock changes made by `VBoxService.exe` on DC01. The 4771 / `0x25` events confirm that the Kerberos tolerance was exceeded; the approximate two-hour magnitude remains an observation from that session. See [`followups-2026-11-20.txt`](../offline-kerberoast-2026-11-15/followups-2026-11-20.txt), section 4, for the recorded changes.
+
 ## Alert
 
 | Field | Value |
