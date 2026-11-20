@@ -1,14 +1,27 @@
 # Phase 4 live run — real model verdicts on decoy-read and privileged-group alerts (2026-11-20)
 
-Closes roadmap **Item 1**: real AI-triage verdicts on live Active Directory
-alerts, through the human-approval gate and Telegram. With the 100212 live run
-of [2026-11-08](../live-run-2026-11-08/), the three scenarios of Item 1 now have
-at least one real verdict each.
+Closes roadmap **Item 1**: real AI-triage verdicts (`AI_MODE=REAL`) on Active
+Directory alerts, through the human-approval gate and Telegram. With the 100212
+live run of [2026-11-08](../live-run-2026-11-08/), the three scenarios of Item 1
+now have at least one real verdict each.
+
+**What ran in real time and what was recovered.** The 100220 alert was
+triggered during the session and processed as it arrived. The two 100230
+cases are **pending alerts from 2026-11-19, recovered by the feed on
+2026-11-20** from its saved cursor and processed in REAL mode: they show the
+model's verdict and the human decision, not real-time delivery of those reads.
+In all three rows the latency is the model call only.
 
 Setup: Windows 11 analysis host, `main` at `b76fa4c`,
 `AI_MODE=REAL python wazuh_feed.py --ssh wazuhadmin@192.168.56.102` (dedup on).
-Model: `claude-haiku-4-5-20251001`, the model of the 10/10 benchmark, kept so the
-live evidence and the benchmark describe the same pipeline.
+Model request as in the [structured-output benchmark](../benchmark-2026-11-10-structured-output/)
+(10/10, `3c1020f`): `claude-haiku-4-5-20251001`, temperature 0, `max_tokens`
+1024, the verdict schema as `output_config.format`, `system_prompt_ad.txt`.
+Between `3c1020f` and `b76fa4c` the model call, schema and prompt are unchanged;
+the triage module changed only in the approval gate (re-ask on invalid input),
+the Telegram notice layout and the case/link transaction. The 100212 run of
+2026-11-08 is older: feed `cd24203`, triage before PR #4 (no tripwire floor) and
+before structured output, as recorded in [its README](../live-run-2026-11-08/).
 
 ## Result
 
@@ -20,6 +33,9 @@ live evidence and the benchmark describe the same pipeline.
 
 - Latency, tokens and cost are printed by the pipeline (`[métricas]`), per API
   call. Three calls, $0.016280 in total. n = 3 observations, not a benchmark.
+- **Priority and action are the model's own.** The tripwire floor prints
+  `[PISO] … modelo dijo X -> Y` whenever it raises a verdict; no such line
+  appears in this run, so the floor did not change any of the three.
 - Every case has one decision and every alert is linked to its case
   (`atendida`): [`sqlite-cases.txt`](sqlite-cases.txt). Nothing is executed on
   any answer.
@@ -50,9 +66,11 @@ justifications are worth stating, because the analyst has to catch them:
    (the decoy), not *who or why*; this read was the analyst's own.
 2. **A source timestamp taken at face value.** Verdict 3 argues "06:51 UTC …
    outside typical change windows". 06:51 is the Wazuh manager's alert time,
-   2026-11-19T06:51:01Z, while DC01 recorded the change at 2026-11-20T12:36:40Z:
-   the manager clock was about 29 h 45 min behind (likely a VM resumed without a
-   time sync; not checked). The model built an argument on that timestamp.
+   2026-11-19T06:51:01Z, while DC01 printed 2026-11-20T12:36:40Z right after the
+   change: the two recorded stamps differ by about 29 h 45 min (clocks not
+   cross-checked; a VM resumed without a time sync is a hypothesis, pending).
+   The model built an argument on that timestamp, and "typical change windows"
+   would need a documented authorised window and a trusted clock.
 3. **An invented derived fact.** Verdict 3 calls the day "a Wednesday";
    2026-11-19 was a Thursday (and the change happened on Friday 2026-11-20).
 
@@ -66,9 +84,10 @@ environment.
 
 ## Clocks
 
-- Alert timestamps (`>>> Wazuh …`) are the **manager's** clock: correct for the
-  100230 alerts of 2026-11-19 05:46Z, ~29 h 45 min behind by the time of the
-  100220 alert.
+- Alert timestamps (`>>> Wazuh …`) are the **manager's** clock. For the 100230
+  alerts (2026-11-19 05:46Z) they fit the time of the analyst's reads
+  (2026-11-18 23:46 UTC−6) but were not checked independently. For the 100220
+  alert the manager's stamp and DC01's differ by ~29 h 45 min.
 - `primera_deteccion` and decision times in SQLite are the **analysis host's**
   clock: 12:37:37Z for the 100220 case, about a minute after the change on DC01
   (DC01 printed 12:36:40Z after the add, the 5 s wait and the removal). Host and

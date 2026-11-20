@@ -496,7 +496,7 @@ This is a small, controlled test set, not a benchmark: two injection attempts re
 - [x] Per-alert cost/latency metrics from a measured real-mode run
 - [ ] Prompt caching effective (needs a larger static prompt)
 - [x] Live Wazuh integration — one end-to-end live run (2026-11-08, n = 1): alert in the feed 1.90 s after the action, Telegram 8.27 s ([evidence](../docs/evidence/live-run-2026-11-08/))
-- [x] Real-mode verdicts on the other live scenarios (2026-11-20): 100230 ×2 and 100220, `escalate_tier2` each, 7.4–10.1 s and $0.005–0.006 per call, all through the gate; observations on the model's reasoning ([evidence](../docs/evidence/phase4-live-2026-11-20/))
+- [x] Real-mode verdicts (2026-11-20): 100220 live and 2 cases of pending 100230 alerts processed in REAL mode, `escalate_tier2` each, no floor applied, model call 7.4–10.1 s and $0.005–0.006, all through the gate; observations on the model's reasoning ([evidence](../docs/evidence/phase4-live-2026-11-20/))
 - [x] Accuracy and false-positive rate on a labeled 10-alert benchmark: 10/10, 0 FP, 0 FN (2026-10-27), re-run with the current prompt and tripwire floor on 2026-11-10: final 10/10, model alone 10/10, raw responses kept
 - [x] Model returns the JSON object alone: structured output, 0/10 responses with text outside the JSON (7/10 before), justification kept in `razonamiento`
 - [ ] Remediation snippets generated for human review, never auto-executed
