@@ -65,8 +65,8 @@ n = 1: observations of one run, not a benchmark. *Verified* means [`measure_even
 | Scenario | Expected | Observed | Runs | Evidence |
 |---|---|---|---|---|
 | Kerberoasting on the honeytoken, from DC01 (`100212`) | Alert; `high`/`critical`; escalate | Alert in 1.90 s; `critical` / `escalate_tier2` | 1 live | [live run](docs/evidence/live-run-2026-11-08/) |
-| Read of the decoy account (`100230`) | Alert; `high`; escalate | `medium` on one read, `high` on the other: inconsistent → tripwire floor | 2 replayed (2026-11-07) | Reported · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
-| Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` | 1 replayed (2026-11-07) | Reported |
+| Read of the decoy account (`100230`) | Alert; `high`; escalate | `high` / `escalate_tier2` on both cases (10 alerts merged into 2), no floor applied; replays of 2026-11-07 were inconsistent → tripwire floor | 2 cases of pending alerts processed in REAL mode (2026-11-20) + 2 replayed | [live run](docs/evidence/phase4-live-2026-11-20/) · [PR #4](https://github.com/ddiazcr/corporate-soc-simulation/pull/4) |
+| Privileged-group change (`100220`) | Alert; `critical` unless it is an approved change | `critical` / `escalate_tier2` (live, 7.4 s, $0.0051) | 1 live (2026-11-20) + 1 replayed | [live run](docs/evidence/phase4-live-2026-11-20/) |
 | **Benign control — detection:** a legitimate Kerberos ticket for a real service (not the honeytoken) | No `100212` alert | — | ⏳ Not run live | — |
 | **Benign control — triage:** an alert that fires on legitimate activity (look-alike) | Alert; `low`/`medium`, no escalation | — | ⏳ Not run live | Offline benchmark only ([AI triage](ai_triage/README.md)) |
 | Kerberoasting from the network (Kali) | Alert `100212` | ✅ Alert `100212` (level 12): [live detection from Kali via the DC agent](docs/evidence/live-kerberoast-2026-11-15/), after the rule fix | ✅ validated live | [roadmap item 3](docs/roadmap.md) |

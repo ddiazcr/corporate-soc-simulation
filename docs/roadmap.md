@@ -12,6 +12,17 @@ is written — that is where your review has the most leverage.
 
 ## Item 1 — Phase 4 live-run evidence (highest priority)
 
+**Status (2026-11-20): done.** Real verdicts with `claude-haiku-4-5` on all three
+scenarios, each through the human gate and Telegram, with latency, tokens and
+cost per call: 100212 live (2026-11-08, earlier software: no tripwire floor,
+before structured output); 100220 live and 100230 ×2 from pending alerts of
+2026-11-19 recovered and processed in REAL mode (2026-11-20, model request as in
+the structured-output benchmark at `3c1020f`).
+[Evidence](evidence/phase4-live-2026-11-20/) · [100212 run](evidence/live-run-2026-11-08/).
+Decision taken: keep Haiku 4.5, the benchmark's model, so the live evidence and
+the [benchmark](evidence/benchmark-2026-11-10-structured-output/) share the same
+model request; a larger model is a separate, measured comparison (Item 5).
+
 **Goal:** capture real AI-triage verdicts on live Active Directory alerts, with the
 human-approval gate and Telegram notification, as reproducible portfolio evidence.
 
@@ -37,6 +48,17 @@ analyst decision.
 🔶 **Decision for review:** the triage model is currently `claude-haiku-4-5` (cheap,
 fast). For a showcase run, keep Haiku (emphasize cost-efficiency) or switch to a larger
 model (emphasize reasoning quality)? Trade-off: cost/latency vs. depth of justification.
+
+---
+
+## Item 5 — Model comparison on the labeled benchmark (proposed)
+
+**Goal:** run the same 10-alert benchmark with a larger model and compare
+accuracy, false positives/negatives, injection handling, latency and cost
+against Haiku 4.5, every raw response kept. Switch the live model only if the
+measured gain justifies the cost. Also check the reasoning points seen live
+(overclaiming a flag, trusting a wrong source timestamp, inventing derived
+facts such as the weekday).
 
 ---
 
