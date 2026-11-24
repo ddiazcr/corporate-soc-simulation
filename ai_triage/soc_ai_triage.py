@@ -56,9 +56,23 @@ MODELO_POR_DEFECTO = "claude-haiku-4-5-20251001"  # the model of the published b
 # with a known price (PRECIOS) are accepted in REAL/--eval runs.
 MODEL = os.environ.get("AI_MODEL", MODELO_POR_DEFECTO).strip() or MODELO_POR_DEFECTO
 EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scored vs ground truth
+# Request settings per model. Haiku 4.5 keeps the configuration of the
+# published benchmark and live runs (temperature 0, 1024 tokens). The 5.5
+# models reject sampling parameters (omit temperature/top_p/top_k) and think by
+# default, with thinking tokens counted toward max_tokens, so they get no
+# temperature and a larger limit. Migration guides:
+# https://platform.claude.com/docs/en/models/haiku-5-5/migration-guide
+# https://platform.claude.com/docs/en/models/sonnet-5-5/migration-guide
+PERFILES = {
+    "claude-haiku-4-5-20251001": {"temperature": 0, "max_tokens": 1024},
+    "claude-haiku-5-5": {"max_tokens": 16000},
+    "claude-sonnet-5-5": {"max_tokens": 16000},
+    "claude-opus-5-5": {"max_tokens": 16000},
+}
+PERFIL = PERFILES.get(MODEL, {"max_tokens": 1024})
 # Room for the full verdict. A response cut at this limit is rejected (see
 # analizar_con_ia), so the limit must sit well above a normal verdict.
-MAX_TOKENS = 1024
+MAX_TOKENS = PERFIL["max_tokens"]
 # A non-default model writes its own files, so a comparison never overwrites
 # the default model's results.
 _SUFIJO = "" if MODEL == MODELO_POR_DEFECTO else f".{MODEL}"
@@ -155,8 +169,7 @@ def tripwire_aplica(rule_id, alerta=None):
 
 # List prices, USD per million tokens, for the cost metric only:
 # model -> (input, output, cache-read multiplier, 5-minute cache-write multiplier).
-# Taken 2026-11-24 from copies of Anthropic's pricing page; confirm against
-# https://docs.claude.com/en/docs/about-claude/pricing before publishing costs.
+# Source: https://platform.claude.com/docs/en/about-claude/pricing (consulted 2026-11-24).
 PRECIOS = {
     "claude-haiku-4-5-20251001": (1.00, 5.00, 0.10, 1.25),
     "claude-haiku-5-5": (0.10, 0.50, 0.10, 1.25),   # prompts <= 100k tokens (see precios_de)
@@ -337,6 +350,26 @@ def parsear_json_ia(texto):
     return extraer_json(texto)[0]
 
 
+def cuerpo_solicitud(alerta):
+    """Messages API body for MODEL, following its PERFILES entry: temperature
+    only where the model accepts it, max_tokens per model. The conversation
+    ends with the user turn (no prefill)."""
+    cuerpo = {
+        "model": MODEL,
+        "max_tokens": MAX_TOKENS,
+        "system": [{
+            "type": "text",
+            "text": cargar_system_prompt(),
+            "cache_control": {"type": "ephemeral"},
+        }],
+        "messages": [{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
+        "output_config": {"format": {"type": "json_schema", "schema": SCHEMA_VEREDICTO}},
+    }
+    if "temperature" in PERFIL:
+        cuerpo["temperature"] = PERFIL["temperature"]  # deterministic verdicts where supported
+    return cuerpo
+
+
 def analizar_con_ia(alerta):
     """Return (analisis, metricas). metricas carries latency and, in REAL mode,
     token usage and estimated cost."""
@@ -371,18 +404,7 @@ def analizar_con_ia(alerta):
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         },
-        json={
-            "model": MODEL,
-            "max_tokens": MAX_TOKENS,
-            "temperature": 0,  # deterministic verdicts, reproducible measurements
-            "system": [{
-                "type": "text",
-                "text": cargar_system_prompt(),
-                "cache_control": {"type": "ephemeral"},
-            }],
-            "messages": [{"role": "user", "content": "<alert>\n" + json.dumps(alerta, ensure_ascii=False) + "\n</alert>"}],
-            "output_config": {"format": {"type": "json_schema", "schema": SCHEMA_VEREDICTO}},
-        },
+        json=cuerpo_solicitud(alerta),
         timeout=40,
     )
     resp.raise_for_status()
@@ -753,8 +775,8 @@ def main():
     forzar_nuevo = "--no-dedup" in sys.argv[1:] or EVAL
     archivo = args[0] if args else "sample_ad_alerts.json"
 
-    if (MODE == "REAL" or EVAL) and MODEL not in PRECIOS:
-        print(f"[ERROR] AI_MODEL={MODEL!r} no tiene precio en PRECIOS; no se llama a la API "
+    if (MODE == "REAL" or EVAL) and (MODEL not in PRECIOS or MODEL not in PERFILES):
+        print(f"[ERROR] AI_MODEL={MODEL!r} no tiene precio o perfil (PRECIOS/PERFILES); no se llama a la API "
               f"con un costo desconocido. Modelos con precio: {', '.join(PRECIOS)}")
         sys.exit(2)
     conn = init_db()
@@ -822,6 +844,7 @@ def main():
             "respuestas_truncadas": sum(r["stop_reason"] == "max_tokens" for r in resultados),
             "respuestas_con_texto_extra": sum(bool(r["texto_extra"]) for r in resultados),
             "max_tokens": MAX_TOKENS,
+            "temperatura": PERFIL.get("temperature"),  # None: the model takes no sampling parameters
             "falsas_alarmas_de_inyeccion": sum(bool(r["inyeccion_detectada"]) for r in resultados
                                                if r["inyeccion_evaluable"] and not r["inyeccion_esperada"]),
             "latencia_media_s": round(total_lat / analizadas, 3) if analizadas else None,

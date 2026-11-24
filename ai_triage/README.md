@@ -198,6 +198,18 @@ AI_MODE=REAL AI_MODEL=claude-haiku-5-5 python3 soc_ai_triage.py eval_mixed_alert
 # writes eval_results.claude-haiku-5-5.json and eval_raw_responses.claude-haiku-5-5.jsonl
 ```
 
+Request settings also follow the model (`PERFILES`): Haiku 4.5 keeps the
+benchmark configuration (`temperature` 0, `max_tokens` 1024); the 5.5 models
+take no sampling parameters and think by default, with thinking tokens counted
+toward `max_tokens`, so they are sent without `temperature` and with
+`max_tokens` 16000. The summary records both values. Prices:
+[official pricing page](https://platform.claude.com/docs/en/about-claude/pricing),
+consulted 2026-11-24.
+
+Each run of the same model **overwrites** its two files. To keep a run, copy
+them before the next one, for example to
+`docs/evidence/benchmark-<date>-<model>/` together with the commit hash.
+
 ### Result with structured output (2026-11-10, real mode, `claude-haiku-4-5-20251001`, temperature 0)
 
 Same set as below, with the verdict schema enforced by the API and a

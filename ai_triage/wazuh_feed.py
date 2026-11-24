@@ -430,8 +430,9 @@ def main():
         sys.exit(1)
 
     salida = valor("--convert")
-    if not salida and triage.MODE == "REAL" and triage.MODEL not in triage.PRECIOS:
-        print(f"[ERROR] AI_MODEL={triage.MODEL!r} no tiene precio en PRECIOS; no se llama a la API "
+    if not salida and triage.MODE == "REAL" and (triage.MODEL not in triage.PRECIOS
+                                                   or triage.MODEL not in triage.PERFILES):
+        print(f"[ERROR] AI_MODEL={triage.MODEL!r} no tiene precio o perfil (PRECIOS/PERFILES); no se llama a la API "
               f"con un costo desconocido. Modelos con precio: {', '.join(triage.PRECIOS)}")
         sys.exit(2)
     convertidas, vistos = [], set()
