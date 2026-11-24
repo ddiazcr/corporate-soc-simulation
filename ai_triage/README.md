@@ -188,6 +188,16 @@ AI_MODE=REAL python3 soc_ai_triage.py eval_mixed_alerts.json --eval
 # writes eval_results.json: accuracy, false negatives, false positives, injection detection, latency, cost
 ```
 
+**Another model.** `AI_MODEL` picks the model for a comparison (the default
+stays `claude-haiku-4-5-20251001`). Each model is priced from its own list
+rates (`PRECIOS`) and writes its own files, so the default results are never
+overwritten; a model with no known price is refused before any API call:
+
+```bash
+AI_MODE=REAL AI_MODEL=claude-haiku-5-5 python3 soc_ai_triage.py eval_mixed_alerts.json --eval
+# writes eval_results.claude-haiku-5-5.json and eval_raw_responses.claude-haiku-5-5.jsonl
+```
+
 ### Result with structured output (2026-11-10, real mode, `claude-haiku-4-5-20251001`, temperature 0)
 
 Same set as below, with the verdict schema enforced by the API and a

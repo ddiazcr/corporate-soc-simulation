@@ -53,10 +53,20 @@ model (emphasize reasoning quality)? Trade-off: cost/latency vs. depth of justif
 
 ## Item 5 — Model comparison on the labeled benchmark (proposed)
 
-**Goal:** run the same 10-alert benchmark with a larger model and compare
+**Goal:** run the same 10-alert benchmark with other models and compare
 accuracy, false positives/negatives, injection handling, latency and cost
 against Haiku 4.5, every raw response kept. Switch the live model only if the
-measured gain justifies the cost. Also check the reasoning points seen live
+measured result justifies it.
+
+**Candidates (list prices taken 2026-11-24, confirm before publishing):**
+Haiku 4.5 (baseline, $1 / $5 per million input / output tokens); **Haiku 5.5**
+(newer, $0.10 / $0.50 up to 100k-token prompts: a tenth of the baseline);
+**Sonnet 5.5** (larger, $2 / $10). Opus 5.5 ($4 / $20) only if Sonnet changes
+the outcome.
+
+**Harness (ready):** `AI_MODEL` selects the model; each model has its own price
+and writes its own `eval_results.<model>.json` / `eval_raw_responses.<model>.jsonl`;
+a model with no known price is refused before any API call. Also check the reasoning points seen live
 (overclaiming a flag, trusting a wrong source timestamp, inventing derived
 facts such as the weekday).
 

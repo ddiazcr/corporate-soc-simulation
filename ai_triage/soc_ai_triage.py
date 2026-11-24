@@ -51,14 +51,20 @@ DB_PATH = "casos_ad.db"
 DEDUP_WINDOW_MINUTES = 10
 MIN_LEVEL = 10  # only alerts at or above this Wazuh level are triaged
 MODE = os.environ.get("AI_MODE", "SIMULADO")  # "SIMULADO" or "REAL"
-MODEL = "claude-haiku-4-5-20251001"
+MODELO_POR_DEFECTO = "claude-haiku-4-5-20251001"  # the model of the published benchmark and live runs
+# AI_MODEL selects another model (e.g. for a benchmark comparison). Only models
+# with a known price (PRECIOS) are accepted in REAL/--eval runs.
+MODEL = os.environ.get("AI_MODEL", MODELO_POR_DEFECTO).strip() or MODELO_POR_DEFECTO
 EVAL = "--eval" in sys.argv[1:]  # benchmark mode: no prompts, no Telegram, scored vs ground truth
 # Room for the full verdict. A response cut at this limit is rejected (see
 # analizar_con_ia), so the limit must sit well above a normal verdict.
 MAX_TOKENS = 1024
-EVAL_RAW = "eval_raw_responses.jsonl"  # --eval: every raw model response, for audit
+# A non-default model writes its own files, so a comparison never overwrites
+# the default model's results.
+_SUFIJO = "" if MODEL == MODELO_POR_DEFECTO else f".{MODEL}"
+EVAL_RAW = f"eval_raw_responses{_SUFIJO}.jsonl"  # --eval: every raw model response, for audit
 EXIT_AUDITORIA = 4  # --eval stopped: a raw response could not be recorded
-EVAL_RESULTS = "eval_results.json"  # --eval: summary + per-alert scores of THIS run only
+EVAL_RESULTS = f"eval_results{_SUFIJO}.json"  # --eval: summary + per-alert scores of THIS run only
 
 # suggested_action must be exactly one of these. Anything else is rejected by
 # schema validation and the alert falls back to safe manual handling.
@@ -147,9 +153,28 @@ def tripwire_aplica(rule_id, alerta=None):
         return es_senuelo_verificado(alerta)
     return True
 
-# Rough Haiku 4.5 pricing (USD per million tokens) for the cost metric only.
-PRECIO_ENTRADA = 1.00 / 1_000_000
-PRECIO_SALIDA = 5.00 / 1_000_000
+# List prices, USD per million tokens, for the cost metric only:
+# model -> (input, output, cache-read multiplier, 5-minute cache-write multiplier).
+# Taken 2026-11-24 from copies of Anthropic's pricing page; confirm against
+# https://docs.claude.com/en/docs/about-claude/pricing before publishing costs.
+PRECIOS = {
+    "claude-haiku-4-5-20251001": (1.00, 5.00, 0.10, 1.25),
+    "claude-haiku-5-5": (0.10, 0.50, 0.10, 1.25),   # prompts <= 100k tokens (see precios_de)
+    "claude-sonnet-5-5": (2.00, 10.00, 0.05, 1.25),
+    "claude-opus-5-5": (4.00, 20.00, 0.05, 1.25),
+}
+HAIKU_55_LARGO = (100_000, 0.50, 2.50)  # above this prompt size Haiku 5.5 bills 0.50 / 2.50
+
+
+def precios_de(modelo, tokens_prompt):
+    """(input $/token, output $/token, cache-read mult., cache-write mult.) for
+    one call. Unknown model -> ValueError: no cost is ever made up."""
+    if modelo not in PRECIOS:
+        raise ValueError(f"precio desconocido para {modelo!r}: agregalo a PRECIOS")
+    ent, sal, lect, escr = PRECIOS[modelo]
+    if modelo == "claude-haiku-5-5" and tokens_prompt > HAIKU_55_LARGO[0]:
+        ent, sal = HAIKU_55_LARGO[1], HAIKU_55_LARGO[2]
+    return ent / 1_000_000, sal / 1_000_000, lect, escr
 
 
 # --------------------------------------------------------------------------- #
@@ -369,9 +394,8 @@ def analizar_con_ia(alerta):
     to = u.get("output_tokens", 0)
     cache_read = u.get("cache_read_input_tokens", 0) or 0
     cache_write = u.get("cache_creation_input_tokens", 0) or 0
-    # Cache reads bill at ~0.1x input, cache writes at ~1.25x input.
-    costo = (ti * PRECIO_ENTRADA + to * PRECIO_SALIDA
-             + cache_read * PRECIO_ENTRADA * 0.1 + cache_write * PRECIO_ENTRADA * 1.25)
+    p_in, p_out, m_lect, m_escr = precios_de(MODEL, ti + cache_read + cache_write)
+    costo = (ti * p_in + to * p_out + cache_read * p_in * m_lect + cache_write * p_in * m_escr)
     metricas = {
         "latencia_s": round(time.monotonic() - inicio, 3),
         "tokens_in": ti,
@@ -729,11 +753,15 @@ def main():
     forzar_nuevo = "--no-dedup" in sys.argv[1:] or EVAL
     archivo = args[0] if args else "sample_ad_alerts.json"
 
+    if (MODE == "REAL" or EVAL) and MODEL not in PRECIOS:
+        print(f"[ERROR] AI_MODEL={MODEL!r} no tiene precio en PRECIOS; no se llama a la API "
+              f"con un costo desconocido. Modelos con precio: {', '.join(PRECIOS)}")
+        sys.exit(2)
     conn = init_db()
     with open(archivo, "r", encoding="utf-8") as f:
         alertas = json.load(f)
 
-    print(f"Modo={MODE} | triage de {len(alertas)} alertas desde {archivo}"
+    print(f"Modo={MODE} | modelo={MODEL} | triage de {len(alertas)} alertas desde {archivo}"
           f"{' (dedup off)' if forzar_nuevo else ''}{' | EVALUACIÓN' if EVAL else ''}\n")
     total_costo, total_lat, analizadas = 0.0, 0.0, 0
     resultados = []
