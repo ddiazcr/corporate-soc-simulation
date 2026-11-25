@@ -1,0 +1,41 @@
+== Haiku 4.5
+  #1  in=2821  cache_read=0     cache_write=0     out=396   thinking=0     cost=$0.004801
+  #2  in=2791  cache_read=0     cache_write=0     out=356   thinking=0     cost=$0.004571
+  #3  in=2833  cache_read=0     cache_write=0     out=463   thinking=0     cost=$0.005148
+  #4  in=2828  cache_read=0     cache_write=0     out=476   thinking=0     cost=$0.005208
+  #5  in=2817  cache_read=0     cache_write=0     out=491   thinking=0     cost=$0.005272
+  #6  in=2791  cache_read=0     cache_write=0     out=460   thinking=0     cost=$0.005091
+  #7  in=2786  cache_read=0     cache_write=0     out=538   thinking=0     cost=$0.005476
+  #8  in=2767  cache_read=0     cache_write=0     out=453   thinking=0     cost=$0.005032
+  #9  in=2788  cache_read=0     cache_write=0     out=449   thinking=0     cost=$0.005033
+  #10 in=2809  cache_read=0     cache_write=0     out=376   thinking=0     cost=$0.004689
+  totals: in=28031 cache_read=0 cache_write=0 out=4458 thinking=0
+  recomputed cost $0.050321 | reported $0.050321 | MATCH
+== Haiku 5.5
+  #1  in=298   cache_read=3327  cache_write=0     out=1548  thinking=912   cost=$0.000837
+  #2  in=265   cache_read=3327  cache_write=0     out=1412  thinking=809   cost=$0.000766
+  #3  in=310   cache_read=3327  cache_write=0     out=1443  thinking=715   cost=$0.000786
+  #4  in=314   cache_read=3327  cache_write=0     out=1375  thinking=629   cost=$0.000752
+  #5  in=286   cache_read=3327  cache_write=0     out=1421  thinking=592   cost=$0.000772
+  #6  in=276   cache_read=3327  cache_write=0     out=1376  thinking=627   cost=$0.000749
+  #7  in=259   cache_read=3327  cache_write=0     out=1529  thinking=751   cost=$0.000824
+  #8  in=235   cache_read=3327  cache_write=0     out=1286  thinking=571   cost=$0.000700
+  #9  in=273   cache_read=3327  cache_write=0     out=1369  thinking=530   cost=$0.000745
+  #10 in=301   cache_read=3327  cache_write=0     out=1591  thinking=603   cost=$0.000859
+  totals: in=2817 cache_read=33270 cache_write=0 out=14350 thinking=6739
+  recomputed cost $0.007789 | reported $0.007790 | MATCH
+== Sonnet 5.5
+  #1  in=298   cache_read=3327  cache_write=0     out=678   thinking=0     cost=$0.007709
+  #2  in=265   cache_read=3327  cache_write=0     out=1313  thinking=689   cost=$0.013993
+  #3  in=310   cache_read=3327  cache_write=0     out=687   thinking=0     cost=$0.007823
+  #4  in=314   cache_read=3327  cache_write=0     out=746   thinking=0     cost=$0.008421
+  #5  in=286   cache_read=3327  cache_write=0     out=783   thinking=0     cost=$0.008735
+  #6  in=276   cache_read=3327  cache_write=0     out=771   thinking=0     cost=$0.008595
+  #7  in=259   cache_read=3327  cache_write=0     out=597   thinking=0     cost=$0.006821
+  #8  in=235   cache_read=3327  cache_write=0     out=771   thinking=0     cost=$0.008513
+  #9  in=273   cache_read=3327  cache_write=0     out=721   thinking=0     cost=$0.008089
+  #10 in=301   cache_read=3327  cache_write=0     out=805   thinking=0     cost=$0.008985
+  totals: in=2817 cache_read=33270 cache_write=0 out=7872 thinking=689
+  recomputed cost $0.087681 | reported $0.087684 | MATCH
+
+Per-call latency is not stored in these files; mean latency comes from the run summaries.

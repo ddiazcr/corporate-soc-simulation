@@ -51,7 +51,7 @@ model (emphasize reasoning quality)? Trade-off: cost/latency vs. depth of justif
 
 ---
 
-## Item 5 — Model comparison on the labeled benchmark (proposed)
+## Item 5 — Model comparison on the labeled benchmark (first run done)
 
 **Goal:** run the same 10-alert benchmark with other models and compare
 accuracy, false positives/negatives, injection handling, latency and cost
@@ -87,6 +87,14 @@ are per model: the 5.5 models get no `temperature` and room for thinking
    where the reasoning flaws above were actually observed.
 5. Try Opus 5.5 only if Sonnet 5.5 differs from Haiku on the rubric, and decide
    by those differences plus cost per alert.
+
+**First run (2026-11-24):** all three models 10/10 on verdicts; on the rubric
+the 5.5 models make fewer grounding and clock errors than Haiku 4.5; cost per
+10 alerts $0.050 (Haiku 4.5), $0.008 (Haiku 5.5), $0.088 (Sonnet 5.5). The
+5.5 models switch output language within a run. Evidence and scoring:
+[`docs/evidence/benchmark-2026-11-24-model-comparison/`](evidence/benchmark-2026-11-24-model-comparison/).
+Next: output-language rule and RDS01 wording in the prompt, live-case set,
+re-run. The live model stays Haiku 4.5 until then; Opus not justified yet.
 
 ---
 
