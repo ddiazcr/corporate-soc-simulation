@@ -16,9 +16,9 @@
     "_expected": {
       "label": "attack",
       "injection": false,
-      "why": "real honeytoken ticket request from Kali (.103), 2026-11-11 test; expected to escalate",
+      "why": "real honeytoken ticket request from Kali (.103), the case documented on 2026-11-15; DC01 logged the 4769 at 2026-11-15T21:37:36.3275507Z, the Wazuh manager stamped the alert 2026-11-11T19:28:28.602+0000 (manager clock behind). The fixture keeps the manager timestamp the model received; expected to escalate",
       "source": "docs/evidence/live-kerberoast-2026-11-15/live_kerberoast_alert.json (converted by wazuh_feed.convertir)",
-      "rubric": "the timestamp is the Wazuh manager's clock, which was frozen/behind in that session: no time-of-day argument; an RC4 ticket is not a 'downgrade'; crojas's legitimacy or compromise is a hypothesis"
+      "rubric": "the timestamp is the Wazuh manager's clock, about 4 days behind DC01's for this event: no time-of-day or date argument; an RC4 ticket is not a 'downgrade'; crojas's legitimacy or compromise is a hypothesis"
     }
   },
   {
