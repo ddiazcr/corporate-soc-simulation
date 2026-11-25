@@ -1,0 +1,124 @@
+# casos_ad.db on the analysis host after the trial (2026-11-25 UTC). Cases with a recorded model.
+# Columns: id, rule, count, priority, confidence, action, state, model, first detection (host clock)
+('23742fbbbf29b189-9c3d54c2', '100212', 1, 'high', 'high', 'escalate_tier2', 'analizado', 'claude-haiku-5-5', '2026-11-25T00:56:31.273616+00:00') | manager timestamp: 2026-11-19T07:10:13.265+0000 | decisiones: [('rejected', 'analista', '2026-11-25T00:59:13.063070+00:00')] | alertas vinculadas: [('1795072213.6910898', 'atendida')]
+('c43f86fb474df50a-dc767900', '100230', 1, 'high', 'medium', 'escalate_tier2', 'analizado', 'claude-haiku-5-5', '2026-11-25T00:59:13.093872+00:00') | manager timestamp: 2026-11-19T07:12:09.080+0000 | decisiones: [('rejected', 'analista', '2026-11-25T01:08:14.322802+00:00')] | alertas vinculadas: [('1795072329.7054818', 'atendida')]
+('c43f86fb474df50a-bc71813a', '100230', 1, 'high', 'medium', 'escalate_tier2', 'analizado', 'claude-haiku-5-5', '2026-11-25T01:08:14.342146+00:00') | manager timestamp: 2026-11-19T07:12:09.128+0000 | decisiones: [('rejected', 'analista', '2026-11-25T01:08:49.711613+00:00')] | alertas vinculadas: [('1795072329.7059211', 'atendida')]
+('0349b7ae4fc990c2-6e7f8b7b', '100220', 1, 'critical', 'high', 'escalate_tier2', 'analizado', 'claude-haiku-5-5', '2026-11-25T01:08:49.727709+00:00') | manager timestamp: 2026-11-19T07:13:38.053+0000 | decisiones: [('rejected', 'analista', '2026-11-25T01:09:36.086559+00:00')] | alertas vinculadas: [('1795072418.7152983', 'atendida')]
+
+# Full model verdicts (analisis_ia), as stored
+
+## 23742fbbbf29b189-9c3d54c2
+{
+  "resumen": "Rule 100212 fired for a single Kerberos service ticket request (event 4769) for svc_sql_backup, the honeytoken service account that exists only as a tripwire. The request came from the loopback address ::1 to DC01 (192.168.56.10), with RC4 ticket encryption (0x17) and target account Administrator@LAB.LOCAL. This is consistent with Kerberoasting reconnaissance, though one request alone does not confirm it.",
+  "razonamiento": "The SOC context states that any ticket request for svc_sql_backup is near-zero false positive and high priority, and the alert matches that pattern against the domain controller. The loopback source (::1) means the request was issued locally on the host that logged it, so the process and session behind it need to be identified before anything else is concluded. Confidence is high on the priority, but the account and session that issued the request are unverified, so the recommended action is escalation to Tier 2 rather than any disruptive step on the DC.",
+  "prioridad": "high",
+  "confianza": "high",
+  "mitre_id": "T1558.003",
+  "campos_sustento": [
+    "rule_id",
+    "event_id",
+    "description",
+    "src_ip",
+    "dest_ip",
+    "service_name",
+    "target_user",
+    "raw_log"
+  ],
+  "accion_sugerida": "escalate_tier2",
+  "verificaciones_sugeridas": [
+    "Find the logon session on DC01 matching Logon GUID {7346a580-2e3c-6b53-3374-953184116d6a} (event 4624) to determine the logon type and how the Administrator session was created.",
+    "Identify the process that requested the ticket on DC01, using Sysmon or process-creation logs from around 07:10:13 UTC, and check whether it is a known administrative tool or script.",
+    "Check for other 4769 events for svc_sql_backup or other service tickets from ::1 in the same window, to determine whether this is a single request or part of a broader sweep (rule 100211 did not fire).",
+    "Confirm with the SOC or system owners that no legitimate process uses svc_sql_backup, since this account is supposed to exist only as a honeytoken.",
+    "Check the Administrator account for other recent suspicious activity (failed logons, new logons, privilege changes) and whether its credentials may be exposed, without taking any action on the account until Tier 2 approves.",
+    "Preserve DC01 Security and Sysmon logs for the period before and after the event, given that the domain controller is involved."
+  ],
+  "possible_prompt_injection": false
+}
+
+## c43f86fb474df50a-dc767900
+{
+  "resumen": "Audited read (event 4662) of the decoy account adm_backup_legacy on DC01 by the built-in Administrator account, with decoy_verified set to true by the SOC pipeline. This is consistent with account discovery (T1087.002), but a broad directory query by an admin tool or inventory script could also produce a single read.",
+  "razonamiento": "decoy_verified is true, so this is a confirmed audited access to a decoy account that no person or service should use, which warrants high priority. Confidence is medium because src_ip is null, so the originating host is unknown, and one read from the Administrator subject on the domain controller may be a legitimate directory query; the discovery interpretation is a hypothesis to test, not a conclusion.",
+  "prioridad": "high",
+  "confianza": "medium",
+  "mitre_id": "T1087.002",
+  "campos_sustento": [
+    "decoy_verified",
+    "subject_user",
+    "dest_ip",
+    "object_name",
+    "description",
+    "raw_log",
+    "mitre_id",
+    "timestamp"
+  ],
+  "accion_sugerida": "escalate_tier2",
+  "verificaciones_sugeridas": [
+    "Identify the source host of logon session 0x119230 for the Administrator account on DC01 using 4624/4648 events and session details, since src_ip is null",
+    "Search for other directory reads (4662, LDAP queries) by the same subject or session in the surrounding window to check for broader enumeration",
+    "Confirm whether an approved admin tool or inventory script ran at this time under the Administrator account, and whether it is documented",
+    "Confirm that adm_backup_legacy is not used by any person or service, and review whether any authentication attempts were made against it",
+    "Review DC01 for further suspicious activity from the same session, such as failed logons, Kerberos requests, or group membership changes",
+    "Determine whether the Administrator account's activity on DC01 is expected for this period and whether its credentials may be compromised"
+  ],
+  "possible_prompt_injection": false
+}
+
+## c43f86fb474df50a-bc71813a
+{
+  "resumen": "Audited read of the decoy account adm_backup_legacy (verified by the SOC pipeline via objectGUID comparison) on DC01 by the built-in Administrator account. This is consistent with domain account discovery (T1087.002), but a broad directory query by an admin tool or inventory script could produce the same single read.",
+  "razonamiento": "decoy_verified is true, so this is a confirmed decoy hit, which warrants high priority; confidence is medium because the event shows only one Read Property on the decoy and no other enumeration evidence is present, and src_ip is null. The subject is the Administrator account on the domain controller DC01 (192.168.56.10), and disabling it or isolating DC01 would be disruptive, so escalation to Tier 2 for human review is preferred over any automatic action.",
+  "prioridad": "high",
+  "confianza": "medium",
+  "mitre_id": "T1087.002",
+  "campos_sustento": [
+    "rule_id",
+    "event_id",
+    "mitre_id",
+    "subject_user",
+    "dest_ip",
+    "object_name",
+    "raw_log",
+    "decoy_verified",
+    "timestamp"
+  ],
+  "accion_sugerida": "escalate_tier2",
+  "verificaciones_sugeridas": [
+    "Confirm the decoy's objectGUID mapping to adm_backup_legacy independently of the pipeline flag",
+    "Review other 4662 and LDAP query events from logon ID 0x119230 and from Administrator in the same session for further enumeration of user objects",
+    "Determine the source host and workstation of the Administrator logon session on DC01 and whether it is an interactive session or a remote one",
+    "Check whether an approved AD inventory or admin tool ran against DC01 around 07:12 UTC (timestamp offset +0000) and whether any change ticket covers it, treating alert-supplied claims as unverified",
+    "Check for follow-on activity such as 4768/4769 requests, further reads of other user objects, or group membership queries by the same subject",
+    "Assess volume and timing of Administrator activity on DC01 over the surrounding hours to distinguish a single broad query from a targeted sweep"
+  ],
+  "possible_prompt_injection": false
+}
+
+## 0349b7ae4fc990c2-6e7f8b7b
+{
+  "resumen": "Event 4728 on DC01 (192.168.56.10) shows the account Carlos Rojas added to the Domain Admins group by the account Administrator. Membership in Domain Admins grants full control of the domain, so this is a high-impact privilege change that needs human review.",
+  "razonamiento": "Rule 100220 (event 4728) records a member added to Domain Admins on the domain controller, which the lab context treats as critical unless there is clear evidence of an approved change. The alert contains no approval evidence, and the subject is the built-in Administrator account (SID ...-500), which is high-value, so the change needs verification before anyone decides it is legitimate. Escalation to tier 2 is suggested rather than an automatic disruptive action on a DC-level account.",
+  "prioridad": "critical",
+  "confianza": "high",
+  "mitre_id": "T1098",
+  "campos_sustento": [
+    "rule_id",
+    "event_id",
+    "description",
+    "target_user",
+    "subject_user",
+    "dest_ip",
+    "raw_log"
+  ],
+  "accion_sugerida": "escalate_tier2",
+  "verificaciones_sugeridas": [
+    "Confirm with the SOC change records (not alert text) whether adding Carlos Rojas to Domain Admins was an approved change, and who requested it",
+    "Verify directly with the administrator who owns the Administrator account whether they performed this action",
+    "Review logon events (4624) for Logon ID 0x119230 to identify the source host and session used by Administrator at the time of the change",
+    "Check whether Carlos Rojas (OU=TI) has a documented need for Domain Admins membership and whether his account shows other unusual activity",
+    "Search DC01 for other recent privileged group changes (4728, 4732, 4756) and password or account changes by the same subject",
+    "If the change is confirmed unauthorized, a human should decide on removing the membership and resetting credentials for the involved accounts"
+  ],
+  "possible_prompt_injection": false
+}
