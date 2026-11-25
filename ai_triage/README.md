@@ -316,6 +316,26 @@ AI_MODE=REAL python3 wazuh_feed.py --ssh <user>@192.168.56.102
 # or replay a copy:   python3 wazuh_feed.py --file alerts.json
 ```
 
+**Which model answered.** The live feed uses the same `AI_MODEL` setting as
+the benchmark (default `claude-haiku-4-5-20251001`), with the same per-model
+request settings and price check. The startup banner, every notification
+(`Modelo: …`, after the case, priority, action and rule lines) and the
+`modelo` column of `casos` record the model a verdict came from, or was asked
+for when the call failed; simulated runs record none (`Modelo: simulado`).
+Databases created before the column get it when they are opened; their
+earlier rows stay empty. A trial with another model:
+
+```bash
+AI_MODE=REAL AI_MODEL=claude-haiku-5-5 python3 wazuh_feed.py --ssh <user>@192.168.56.102
+```
+
+In Windows PowerShell, set the variables first (they last for that window):
+
+```powershell
+$env:AI_MODE = "REAL"; $env:AI_MODEL = "claude-haiku-5-5"
+python wazuh_feed.py --ssh wazuhadmin@192.168.56.102
+```
+
 ### Why the feed does not use `tail -F` (diagnosed 2026-11-08)
 
 The live feed stayed silent although Wazuh raised the alerts. The break was

@@ -212,9 +212,14 @@ def init_db():
             prioridad TEXT,
             confianza TEXT,
             accion_sugerida TEXT,
-            estado TEXT
+            estado TEXT,
+            modelo TEXT
         )
     """)
+    # Databases created before the column existed get it added; their old
+    # rows keep NULL (model not recorded then).
+    if "modelo" not in {fila[1] for fila in conn.execute("PRAGMA table_info(casos)")}:
+        conn.execute("ALTER TABLE casos ADD COLUMN modelo TEXT")
     # Decision log: who approved/rejected what, and when. This is the
     # human-in-the-loop record that makes the pipeline auditable.
     conn.execute("""
@@ -529,7 +534,14 @@ def recortar(texto, limite, caso_id):
     return texto[:max(0, limite - len(nota))].rstrip() + nota
 
 
+def etiqueta_modelo():
+    """Which model produced (or was asked for) the verdict, for the notice and
+    the case row. None in simulated mode: no model was called."""
+    return MODEL if MODE == "REAL" else None
+
+
 def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
+    modelo = etiqueta_modelo() or "simulado"
     if estado == "analizado":
         flag = " ⚠️ POSIBLE INYECCIÓN EN EL LOG" if analisis.get("possible_prompt_injection") else ""
         piso = analisis.get("piso_aplicado")
@@ -542,7 +554,8 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
             f"Caso {caso_id}{flag}\n"
             f"Prioridad: {analisis['prioridad']} (confianza {analisis['confianza']}){nota_piso}\n"
             f"Acción sugerida (requiere aprobación humana): {analisis['accion_sugerida']}\n"
-            f"Regla: {alerta.get('rule_id')} | MITRE: {recortar(analisis.get('mitre_id'), MITRE_MAX, caso_id)}"
+            f"Regla: {alerta.get('rule_id')} | MITRE: {recortar(analisis.get('mitre_id'), MITRE_MAX, caso_id)}\n"
+            f"Modelo: {modelo}"
         )
         if piso:
             # The model's justification argues for ITS verdict, which the policy
@@ -560,6 +573,7 @@ def notificar(caso_id, alerta, analisis, estado, caso_relacionado=None):
         mensaje = (
             f"Caso {caso_id} — análisis de IA NO disponible\n"
             f"Regla: {alerta.get('rule_id')} | {alerta.get('src_ip')} -> {alerta.get('dest_ip')}\n"
+            f"Modelo: {modelo}\n"
         )
         if piso:
             mensaje += (f"Prioridad: {piso} (por regla tripwire; sin veredicto de IA, confianza n/a)\n"
@@ -752,13 +766,13 @@ def procesar_alerta(conn, alerta, forzar_nuevo=False, entrada=input, al_guardar=
     conn.execute(
         "INSERT INTO casos (id, hash_dedup, huella_contenido, regla, mitre_id, origen, destino, "
         "primera_deteccion, ultima_deteccion, conteo, evidencia, analisis_ia, prioridad, confianza, "
-        "accion_sugerida, estado) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "accion_sugerida, estado, modelo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             caso_id, hash_dedup, huella, alerta.get("rule_id"),
             (analisis or {}).get("mitre_id"), alerta.get("src_ip"), alerta.get("dest_ip"),
             ahora, ahora, 1, json.dumps(alerta, ensure_ascii=False),
             json.dumps(analisis, ensure_ascii=False) if analisis else None,
-            prioridad, confianza, accion, estado,
+            prioridad, confianza, accion, estado, etiqueta_modelo(),
         ),
     )
     confirmar_caso(conn, caso_id, al_guardar)

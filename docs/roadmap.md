@@ -115,6 +115,13 @@ live-case set Haiku 4.5 has 2 (it repeats the `decoy_verified` overclaim), the
 [`docs/evidence/benchmark-2026-11-24-prompt-v2/`](evidence/benchmark-2026-11-24-prompt-v2/).
 Open decision: a controlled trial of Haiku 5.5 as the live model (separate change).
 
+**Controlled live trial of Haiku 5.5 (next).** The feed records the model per
+case and per notification (`modelo` column, `Modelo:` line), default
+unchanged. Trial: one live session with `AI_MODEL=claude-haiku-5-5`, the
+phase 4 triggers (100212, 100230, 100220), the same human gate, the same
+rubric. Switch the default only in a later change, if the trial adds no new
+finding.
+
 ---
 
 ## Item 2 — Internet-exposed honeypot feeding the same SIEM
