@@ -20,8 +20,12 @@ mode, on commit [`2b1056e`](commit.txt).
 
 Costs are computed by the harness from the list prices in `PRECIOS`
 ([official pricing page](https://platform.claude.com/docs/en/about-claude/pricing),
-consulted 2026-11-24) and the `usage` block of each response; the 5.5 models
-read the system prompt from cache (3,327 tokens per call after the first).
+consulted 2026-11-24) and the `usage` block of each response. In the full
+runs the 5.5 models read the system prompt from cache on all 10 calls (3,327
+tokens each; the smoke check had written it); Haiku 4.5 shows no cache reads.
+An independent recomputation from the raw `usage` blocks
+([`usage-summary.txt`](usage-summary.txt)) matches each reported total within
+$0.000003 (per-call rounding).
 
 **Smoke check first.** Before the full runs, each model got one call on the
 first alert of the set (`smoke/`): all three returned `end_turn`, a valid
@@ -72,13 +76,17 @@ Each finding cites the alert number in the set (1–10) and the raw response in
 | Haiku 5.5 | None: #8 states "02:47 local time". |
 | Sonnet 5.5 | None. In #2 it checks the weekday from the date ("2026-10-27 is a Tuesday"), which is correct and also stated in the raw log. |
 
-**4. Invented derived facts**
+**4. Invented derived facts and unproven inferences stated as fact**
 
 | Model | Findings |
 |---|---|
-| Haiku 4.5 | #6: "dherrera, a legitimate staff member" (nothing in the alert or inventory establishes it). |
-| Haiku 5.5 | None. #9 notes that the acting account is missing from the alert and asks for it. #4 notes that `svc_reporting` is not named in the inventory, which is correct. |
-| Sonnet 5.5 | None. #4 makes the same correct point about `svc_reporting`. |
+| Haiku 4.5 | 1. #6: "dherrera, a legitimate staff member" (nothing in the alert or inventory establishes it). |
+| Haiku 5.5 | 2. #5: the one-attempt-per-account spray "is designed to avoid lockouts" (states the attacker's intent; the events show one failure per account, not why). #6: "The RC4 downgrade (0x17)" (the event shows an RC4 ticket, not a downgrade of a negotiated encryption type). On the positive side, #9 notes that the acting account is missing from the alert and asks for it, and #4 notes correctly that `svc_reporting` is not named in the inventory. |
+| Sonnet 5.5 | 1. #5: "El patrón de una sola contraseña probada contra muchas cuentas" (one password tried against many accounts): the events show one failure per account and cannot show that the same password was used; it should be a hypothesis compatible with spraying. #4 makes the same correct point about `svc_reporting`. |
+
+Shared by all three in #8: `svc_helpdesk` is called a service account from its
+`svc_` prefix alone; neither the alert nor the inventory says what it is. Not
+counted, since it applies equally, but it is the same kind of inference.
 
 **5. Verified object vs intent** — not exercised by this set (no
 `decoy_verified` alert). To be scored on the live-case set.
@@ -102,17 +110,27 @@ Each finding cites the alert number in the set (1–10) and the raw response in
 ## Reading of the result
 
 On verdicts, the set does not separate the three models. On justifications,
-both 5.5 models make fewer grounding and clock errors than the baseline, and
-Sonnet 5.5 is the cleanest, at 1.7× the baseline cost and 11× the cost of
-Haiku 5.5. The difference between Sonnet 5.5 and Haiku 5.5 on this set is two
-field-name citations and one conservative reading of an ambiguous prompt rule,
-which by the roadmap criterion does not justify trying Opus 5.5 yet.
+both 5.5 models make fewer grounding and clock errors than the baseline, but
+none is free of inferences stated as fact: Haiku 5.5 makes two (an attacker's
+intent, an RC4 "downgrade") and Sonnet 5.5 one (that a single password was
+sprayed), against one invented fact for Haiku 4.5. Sonnet 5.5 is the cleanest
+overall (no field-name errors, one digit typo, one unproven inference), at
+1.7× the baseline cost and 11× the cost of Haiku 5.5. The difference between
+Sonnet 5.5 and Haiku 5.5 on this set is small (four wrong field names, one
+more unproven inference and one conservative reading of an ambiguous prompt
+rule), which by the roadmap criterion does not justify trying Opus 5.5 yet.
+The pattern common to all three, turning what an event is compatible with into
+what happened, is what the live-case set should probe.
 
 The live model is **not** changed by this PR. Before any switch: add the
 output-language rule, resolve the RDS01 ambiguity in the prompt, build the
 live-case set, and re-run the three models on both sets.
 
 ## Files
+
+- `usage-summary.txt` — tokens, cache, latency and cost per call, recomputed
+  from the `usage` blocks in `full/` with `recompute_usage.py`, and compared
+  with the cost each run reported.
 
 - `full/eval_results*.json` — summary and per-alert scores of each full run.
 - `full/eval_raw_responses*.jsonl` — every raw response with its `usage` block
