@@ -329,6 +329,13 @@ earlier rows stay empty. A trial with another model:
 AI_MODE=REAL AI_MODEL=claude-haiku-5-5 python3 wazuh_feed.py --ssh <user>@192.168.56.102
 ```
 
+In Windows PowerShell, set the variables first (they last for that window):
+
+```powershell
+$env:AI_MODE = "REAL"; $env:AI_MODEL = "claude-haiku-5-5"
+python wazuh_feed.py --ssh wazuhadmin@192.168.56.102
+```
+
 ### Why the feed does not use `tail -F` (diagnosed 2026-11-08)
 
 The live feed stayed silent although Wazuh raised the alerts. The break was
