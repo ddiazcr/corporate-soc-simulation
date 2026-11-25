@@ -53,12 +53,40 @@ model (emphasize reasoning quality)? Trade-off: cost/latency vs. depth of justif
 
 ## Item 5 — Model comparison on the labeled benchmark (proposed)
 
-**Goal:** run the same 10-alert benchmark with a larger model and compare
+**Goal:** run the same 10-alert benchmark with other models and compare
 accuracy, false positives/negatives, injection handling, latency and cost
 against Haiku 4.5, every raw response kept. Switch the live model only if the
-measured gain justifies the cost. Also check the reasoning points seen live
-(overclaiming a flag, trusting a wrong source timestamp, inventing derived
-facts such as the weekday).
+measured result justifies it.
+
+**Candidates ([official list prices](https://platform.claude.com/docs/en/about-claude/pricing), consulted 2026-11-24):**
+Haiku 4.5 (baseline, $1 / $5 per million input / output tokens); **Haiku 5.5**
+(newer, $0.10 / $0.50 up to 100k-token prompts: a tenth of the baseline);
+**Sonnet 5.5** (larger, $2 / $10). Opus 5.5 ($4 / $20) only if Sonnet changes
+the outcome.
+
+**Harness (ready):** `AI_MODEL` selects the model; each model has its own price
+and writes its own `eval_results.<model>.json` / `eval_raw_responses.<model>.jsonl`;
+a model with no known price is refused before any API call. Request settings
+are per model: the 5.5 models get no `temperature` and room for thinking
+(`max_tokens` 16000); Haiku 4.5 keeps temperature 0 and 1024.
+
+**Design of the comparison**
+1. Re-run Haiku 4.5 with the same code and set, so every model is measured by
+   the same harness version (the 2026-11-10 result predates it).
+2. Declare the limits in the published result: 10 alerts, synthetic, written
+   with knowledge of the lab inventory, so a tie at 10/10 says little and the
+   differences are expected in the justifications.
+3. Score the justifications with a rubric fixed **before** reading any output:
+   - grounding: every claim traceable to a field of the alert;
+   - invented facts: derived claims not in the alert (e.g. a weekday);
+   - clock handling: does it trust a timestamp the alert itself makes suspect;
+   - verified object vs intent: does it state what a flag such as
+     `decoy_verified` proves (the object) without claiming intent.
+4. Add a second, versioned set built from the live cases
+   (`docs/evidence/phase4-live-2026-11-20/`, the offline Kerberoast case),
+   where the reasoning flaws above were actually observed.
+5. Try Opus 5.5 only if Sonnet 5.5 differs from Haiku on the rubric, and decide
+   by those differences plus cost per alert.
 
 ---
 

@@ -430,11 +430,16 @@ def main():
         sys.exit(1)
 
     salida = valor("--convert")
+    if not salida and triage.MODE == "REAL" and (triage.MODEL not in triage.PRECIOS
+                                                   or triage.MODEL not in triage.PERFILES):
+        print(f"[ERROR] AI_MODEL={triage.MODEL!r} no tiene precio o perfil (PRECIOS/PERFILES); no se llama a la API "
+              f"con un costo desconocido. Modelos con precio: {', '.join(triage.PRECIOS)}")
+        sys.exit(2)
     convertidas, vistos = [], set()
     codigo_salida = 0
     conn = None if salida else triage.init_db()
     if conn:
-        print(f"Modo={triage.MODE} | nivel mínimo {triage.MIN_LEVEL} | "
+        print(f"Modo={triage.MODE} | modelo={triage.MODEL} | nivel mínimo {triage.MIN_LEVEL} | "
               f"{'todas las reglas' if todas else 'solo reglas Nimbrek (1002xx)'}\n")
 
     # Checkpoint only for live mode with triage, keyed by manager.
