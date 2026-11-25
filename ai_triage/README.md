@@ -210,6 +210,25 @@ Each run of the same model **overwrites** its two files. To keep a run, copy
 them before the next one, for example to
 `docs/evidence/benchmark-<date>-<model>/` together with the commit hash.
 
+**Live-case set.** `eval_live_cases.json` holds four real alerts exactly as the
+pipeline sent them to the model: the 100212 honeytoken ticket of the case
+documented on 2026-11-15 ([`live-kerberoast-2026-11-15`](../docs/evidence/live-kerberoast-2026-11-15/),
+converted with `wazuh_feed.convertir`; DC01 logged the event at
+2026-11-15T21:37:36Z while the Wazuh manager, its clock behind, stamped the
+alert 2026-11-11T19:28:28Z — the fixture keeps the manager's timestamp, as the
+model received it) and the two 100230 decoy reads and the
+100220 group add of the [phase 4 live run](../docs/evidence/phase4-live-2026-11-20/)
+(from `casos_ad.db`). Each `_expected` records the source and what the
+justification must not claim (what `decoy_verified` proves, a time-of-day
+argument from the manager's skewed clock, an unchecked weekday). All four are
+expected to escalate: the activities were authorised, but nothing in the alerts
+can show it. The set measures expected escalation and the quality of the
+justification; a 4/4 is not "four real attacks detected". Run it like the synthetic set:
+
+```bash
+AI_MODE=REAL python3 soc_ai_triage.py eval_live_cases.json --eval
+```
+
 ### Result with structured output (2026-11-10, real mode, `claude-haiku-4-5-20251001`, temperature 0)
 
 Same set as below, with the verdict schema enforced by the API and a

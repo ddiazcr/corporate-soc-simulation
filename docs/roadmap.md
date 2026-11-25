@@ -84,7 +84,8 @@ are per model: the 5.5 models get no `temperature` and room for thinking
      `decoy_verified` proves (the object) without claiming intent.
 4. Add a second, versioned set built from the live cases
    (`docs/evidence/phase4-live-2026-11-20/`, the offline Kerberoast case),
-   where the reasoning flaws above were actually observed.
+   where the reasoning flaws above were actually observed. Done:
+   `ai_triage/eval_live_cases.json` (4 real alerts).
 5. Try Opus 5.5 only if Sonnet 5.5 differs from Haiku on the rubric, and decide
    by those differences plus cost per alert.
 
@@ -95,6 +96,24 @@ the 5.5 models make fewer grounding and clock errors than Haiku 4.5; cost per
 [`docs/evidence/benchmark-2026-11-24-model-comparison/`](evidence/benchmark-2026-11-24-model-comparison/).
 Next: output-language rule and RDS01 wording in the prompt, live-case set,
 re-run. The live model stays Haiku 4.5 until then; Opus not justified yet.
+
+**Prompt revision (after the first run):** English-only output; only
+top-level alert keys in `campos_sustento`; an evidence-discipline section
+(hypotheses stated as such; no intent, shared password, "downgrade" or role
+from a name stated as fact; times kept in their own offset; no conclusion from
+time of day alone); RDS01's successful logons stated as part of its pattern;
+Kerberos rule IDs corrected (the prompt named 100210, which is below the
+triage threshold; the triaged rules are 100211 and 100212). This changes the
+prompt of the live model too, so the re-run includes Haiku 4.5 on both sets.
+
+**Re-run with the revised prompt (2026-11-24):** 10/10 and 4/4 for all three;
+English 14/14 each; rubric findings on the synthetic set 4 (Haiku 4.5), 1
+(Haiku 5.5: a valid alert called malformed JSON), 0 (Sonnet 5.5); on the
+live-case set Haiku 4.5 has 2 (it repeats the `decoy_verified` overclaim), the
+5.5 models none. Cost per synthetic alert $0.0056
+(Haiku 4.5), $0.00095 (Haiku 5.5), $0.0118 (Sonnet 5.5). Evidence:
+[`docs/evidence/benchmark-2026-11-24-prompt-v2/`](evidence/benchmark-2026-11-24-prompt-v2/).
+Open decision: a controlled trial of Haiku 5.5 as the live model (separate change).
 
 ---
 
