@@ -128,9 +128,10 @@ live-case set, and re-run the three models on both sets.
 
 ## Files
 
-- `usage-summary.txt` — tokens, cache, latency and cost per call, recomputed
-  from the `usage` blocks in `full/` with `recompute_usage.py`, and compared
-  with the cost each run reported.
+- `usage-summary.txt` — tokens, cache and cost per call, recomputed from the
+  `usage` blocks in `full/` with `recompute_usage.py`, and compared with the
+  cost each run reported. Mean latency comes from each run's summary;
+  per-call times were not stored.
 
 - `full/eval_results*.json` — summary and per-alert scores of each full run.
 - `full/eval_raw_responses*.jsonl` — every raw response with its `usage` block
