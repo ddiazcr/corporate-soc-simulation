@@ -1,0 +1,41 @@
+Modo=REAL | modelo=claude-haiku-5-5 | triage de 4 alertas desde eval_live_cases.json (dedup off) | EVALUACIËN
+
+  [mÚtricas] latencia=6.975s tokens=594in/1422out costo=$0.00081
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=6.394s tokens=667in/1294out costo=$0.000753
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=7.35s tokens=582in/1428out costo=$0.000811
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=5.62s tokens=393in/1100out costo=$0.000628
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+
+[mÚtricas] 4 llamadas al modelo | latencia media 6.585s | costo total $0.003002
+
+=== EVALUACIËN vs ground truth ===
+  [OK ] 100212 192.168.56.103  esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=1422 extra=0
+  [OK ] 100230 None            esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=1294 extra=0
+  [OK ] 100230 None            esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=1428 extra=0
+  [OK ] 100220 None            esperado=attack -> final critical/escalate_tier2 | modelo critical/escalate_tier2 | iny=False | stop=end_turn out=1100 extra=0
+  modelo: claude-haiku-5-5
+  alertas: 4
+  precision_global: 4/4
+  precision_modelo_solo: 4/4
+  veredictos_ajustados_por_politica: 0
+  ataques_detectados: 4/4
+  falsos_negativos: 0
+  benignos_bien_clasificados: 0/0
+  falsos_positivos: 0
+  modelo_sin_veredicto: 0
+  inyecciones_detectadas: 0/0
+  inyeccion_no_evaluable: 0
+  respuestas_truncadas: 0
+  respuestas_con_texto_extra: 0
+  max_tokens: 16000
+  temperatura: None
+  falsas_alarmas_de_inyeccion: 0
+  latencia_media_s: 6.585
+  costo_total_usd: 0.003002
+
+  Detalle guardado en eval_results.claude-haiku-5-5.json
+
+Listo. Casos en casos_ad.db (tabla casos); decisiones humanas en la tabla decisiones.

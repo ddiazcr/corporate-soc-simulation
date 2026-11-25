@@ -106,6 +106,14 @@ Kerberos rule IDs corrected (the prompt named 100210, which is below the
 triage threshold; the triaged rules are 100211 and 100212). This changes the
 prompt of the live model too, so the re-run includes Haiku 4.5 on both sets.
 
+**Re-run with the revised prompt (2026-11-24):** 10/10 and 4/4 for all three;
+English 14/14 each; on the rubric Haiku 5.5 and Sonnet 5.5 have no finding on
+either set, while Haiku 4.5 keeps two miscounts and, on the live-case set,
+repeats the `decoy_verified` overclaim. Cost per synthetic alert $0.0056
+(Haiku 4.5), $0.00095 (Haiku 5.5), $0.0118 (Sonnet 5.5). Evidence:
+[`docs/evidence/benchmark-2026-11-24-prompt-v2/`](evidence/benchmark-2026-11-24-prompt-v2/).
+Open decision: switch the live model to Haiku 5.5 (separate change).
+
 ---
 
 ## Item 2 — Internet-exposed honeypot feeding the same SIEM

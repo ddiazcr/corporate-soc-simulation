@@ -1,0 +1,41 @@
+Modo=REAL | modelo=claude-sonnet-5-5 | triage de 4 alertas desde eval_live_cases.json (dedup off) | EVALUACIËN
+
+  [mÚtricas] latencia=5.67s tokens=594in/694out costo=$0.00852
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=5.447s tokens=667in/619out costo=$0.007916
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=5.522s tokens=582in/651out costo=$0.008066
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+  [mÚtricas] latencia=5.379s tokens=393in/585out costo=$0.007028
+  Decisi¾n registrada: pending (no se ejecut¾ ninguna acci¾n)
+
+[mÚtricas] 4 llamadas al modelo | latencia media 5.505s | costo total $0.03153
+
+=== EVALUACIËN vs ground truth ===
+  [OK ] 100212 192.168.56.103  esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=694 extra=0
+  [OK ] 100230 None            esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=619 extra=0
+  [OK ] 100230 None            esperado=attack -> final high/escalate_tier2 | modelo high/escalate_tier2 | iny=False | stop=end_turn out=651 extra=0
+  [OK ] 100220 None            esperado=attack -> final critical/escalate_tier2 | modelo critical/escalate_tier2 | iny=False | stop=end_turn out=585 extra=0
+  modelo: claude-sonnet-5-5
+  alertas: 4
+  precision_global: 4/4
+  precision_modelo_solo: 4/4
+  veredictos_ajustados_por_politica: 0
+  ataques_detectados: 4/4
+  falsos_negativos: 0
+  benignos_bien_clasificados: 0/0
+  falsos_positivos: 0
+  modelo_sin_veredicto: 0
+  inyecciones_detectadas: 0/0
+  inyeccion_no_evaluable: 0
+  respuestas_truncadas: 0
+  respuestas_con_texto_extra: 0
+  max_tokens: 16000
+  temperatura: None
+  falsas_alarmas_de_inyeccion: 0
+  latencia_media_s: 5.505
+  costo_total_usd: 0.03153
+
+  Detalle guardado en eval_results.claude-sonnet-5-5.json
+
+Listo. Casos en casos_ad.db (tabla casos); decisiones humanas en la tabla decisiones.
