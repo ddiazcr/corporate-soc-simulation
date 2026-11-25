@@ -118,7 +118,7 @@ live-case set, and re-run the three models on both sets.
 - `full/eval_raw_responses*.jsonl` — every raw response with its `usage` block
   (thinking content is not returned by the API and is not stored).
 - `smoke/` — the one-alert check that preceded the full runs.
-- `console-excerpt.txt` — the terminal output from the first smoke check up to
-  the third Sonnet 5.5 call, as captured on the host; the rest of the Sonnet
-  run is in its JSON files.
+- `console-excerpt.txt` — the terminal output of the smoke checks and the
+  three full runs, as captured on the host; the per-call metric lines of Sonnet
+  5.5 calls 4–10 were not captured (their values are in its JSON files).
 - `commit.txt` — the commit the runs were made on.
