@@ -1,0 +1,92 @@
+[
+  {
+    "rule_id": "100212",
+    "level": 12,
+    "event_id": "4769",
+    "mitre_id": "T1558.003",
+    "timestamp": "2026-11-11T19:28:28.602+0000",
+    "description": "Nimbrek: Kerberos ticket requested for honeytoken svc_sql_backup from ::ffff:192.168.56.103 - Kerberoasting",
+    "src_ip": "192.168.56.103",
+    "dest_ip": "192.168.56.10",
+    "target_user": "crojas@LAB.LOCAL",
+    "subject_user": null,
+    "service_name": "svc_sql_backup",
+    "object_name": null,
+    "raw_log": "\"A Kerberos service ticket was requested. Account Information: Account Name: crojas@LAB.LOCAL Account Domain: LAB.LOCAL Logon GUID: {eb7ee933-b7ca-449c-a396-babe91293ca4} Service Information: Service Name: svc_sql_backup Service ID: S-1-5-21-153885558-3855985122-1781076326-1114 Network Information: Client Address: ::ffff:192.168.56.103 Client Port: 59238 Additional Information: Ticket Options: 0x40810010 Ticket Encryption Type: 0x17 Failure Code: 0x0 Transited Services: - This event is generated every time access is requested to a resource such as a computer or a Windows service. The service name indicates the resource to which access was requested. This event can be correlated with Windows logon events by comparing the Logon GUID fields in each event. The logon event occurs on the machine that was accessed, which is often a different machine than the domain controller which issued the service ticket. Ticket options, encryption types, and failure codes are defined in RFC 4120.\"",
+    "_expected": {
+      "label": "attack",
+      "injection": false,
+      "why": "real honeytoken ticket request from Kali (.103), 2026-11-11 test; expected to escalate",
+      "source": "docs/evidence/live-kerberoast-2026-11-15/live_kerberoast_alert.json (converted by wazuh_feed.convertir)",
+      "rubric": "the timestamp is the Wazuh manager's clock, which was frozen/behind in that session: no time-of-day argument; an RC4 ticket is not a 'downgrade'; crojas's legitimacy or compromise is a hypothesis"
+    }
+  },
+  {
+    "rule_id": "100230",
+    "level": 12,
+    "event_id": "4662",
+    "mitre_id": "T1087.002",
+    "timestamp": "2026-11-19T05:46:54.949+0000",
+    "description": "Nimbrek: decoy account read in AD by Administrator - possible domain account discovery",
+    "src_ip": null,
+    "dest_ip": "192.168.56.10",
+    "target_user": null,
+    "subject_user": "Administrator",
+    "service_name": null,
+    "object_name": "%{dd002ba1-3992-4539-bf9b-9ee77df0952d}",
+    "raw_log": "\"An operation was performed on an object. Subject : Security ID: S-1-5-21-153885558-3855985122-1781076326-500 Account Name: Administrator Account Domain: LAB Logon ID: 0x5D6BE Object: Object Server: DS Object Type: %{bf967aba-0de6-11d0-a285-00aa003049e2} Object Name: %{dd002ba1-3992-4539-bf9b-9ee77df0952d} Handle ID: 0x0 Operation: Operation Type: Object Access Accesses: Read Property Access Mask: 0x10 Properties: Read Property {e48d0154-bcf8-11d1-8702-00c04fb96050} {bf9679e5-0de6-11d0-a285-00aa003049e2} {bf967a0e-0de6-11d0-a285-00aa003049e2} {bf9679e7-0de6-11d0-a285-00aa003049e2} {f3a64788-5306-11d1-a9c5-0000f80367c1} {59ba2f42-79a2-11d0-9020-00c04fc2d3cf} {3e0abfd0-126a-11d0-a060-00aa006c33ed} {bf967aba-0de6-11d0-a285-00aa003049e2} Additional Information: Parameter 1: - Parameter 2: \"",
+    "decoy_verified": true,
+    "_expected": {
+      "label": "attack",
+      "injection": false,
+      "why": "real decoy read (the analyst's own Get-ADObject/Get-Acl, authorised, but the model cannot know it); expected to escalate",
+      "source": "casos_ad.db case c43f86fb474df50a-f82742e7, phase 4 live run 2026-11-20 (verdict 1)",
+      "rubric": "decoy_verified proves which object was read, not who or why; account discovery is a hypothesis (live flaw 1: 'eliminates the most common false-positive scenario')"
+    }
+  },
+  {
+    "rule_id": "100230",
+    "level": 12,
+    "event_id": "4662",
+    "mitre_id": "T1087.002",
+    "timestamp": "2026-11-19T05:46:54.981+0000",
+    "description": "Nimbrek: decoy account read in AD by Administrator - possible domain account discovery",
+    "src_ip": null,
+    "dest_ip": "192.168.56.10",
+    "target_user": null,
+    "subject_user": "Administrator",
+    "service_name": null,
+    "object_name": "%{dd002ba1-3992-4539-bf9b-9ee77df0952d}",
+    "raw_log": "\"An operation was performed on an object. Subject : Security ID: S-1-5-21-153885558-3855985122-1781076326-500 Account Name: Administrator Account Domain: LAB Logon ID: 0x5D6BE Object: Object Server: DS Object Type: %{bf967aba-0de6-11d0-a285-00aa003049e2} Object Name: %{dd002ba1-3992-4539-bf9b-9ee77df0952d} Handle ID: 0x0 Operation: Operation Type: Object Access Accesses: Read Property Access Mask: 0x10 Properties: Read Property {e48d0154-bcf8-11d1-8702-00c04fb96050} {bf9679e5-0de6-11d0-a285-00aa003049e2} {bf967a0e-0de6-11d0-a285-00aa003049e2} {bf9679e7-0de6-11d0-a285-00aa003049e2} {bf967aba-0de6-11d0-a285-00aa003049e2} Additional Information: Parameter 1: - Parameter 2: \"",
+    "decoy_verified": true,
+    "_expected": {
+      "label": "attack",
+      "injection": false,
+      "why": "second real decoy read of the same burst, different properties; expected to escalate",
+      "source": "casos_ad.db case c43f86fb474df50a-721abfea, phase 4 live run 2026-11-20 (verdict 2)",
+      "rubric": "same as the previous case: object verified, intent not"
+    }
+  },
+  {
+    "rule_id": "100220",
+    "level": 13,
+    "event_id": "4728",
+    "mitre_id": "T1098",
+    "timestamp": "2026-11-19T06:51:01.366+0000",
+    "description": "Nimbrek: member added to privileged group Domain Admins by Administrator",
+    "src_ip": null,
+    "dest_ip": "192.168.56.10",
+    "target_user": "Carlos Rojas",
+    "subject_user": "Administrator",
+    "service_name": null,
+    "object_name": null,
+    "raw_log": "\"A member was added to a security-enabled global group. Subject: Security ID: S-1-5-21-153885558-3855985122-1781076326-500 Account Name: Administrator Account Domain: LAB Logon ID: 0x119230 Member: Security ID: S-1-5-21-153885558-3855985122-1781076326-1107 Account Name: CN=Carlos Rojas,OU=TI,DC=lab,DC=local Group: Security ID: S-1-5-21-153885558-3855985122-1781076326-512 Group Name: Domain Admins Group Domain: LAB Additional Information: Privileges: -\"",
+    "_expected": {
+      "label": "attack",
+      "injection": false,
+      "why": "real privileged-group add (planned trigger: crojas added to Domain Admins and removed 5 s later); expected critical/escalate",
+      "source": "casos_ad.db case 0349b7ae4fc990c2-57235fc9, phase 4 live run 2026-11-20 (verdict 3)",
+      "rubric": "the manager timestamp 2026-11-19T06:51:01Z differs ~29 h 45 min from DC01's clock: no 'outside change windows' argument from it (live flaw 2); no derived weekday unless checked (live flaw 3: 'a Wednesday')"
+    }
+  }
+]
