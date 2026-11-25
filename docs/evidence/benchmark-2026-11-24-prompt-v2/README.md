@@ -45,18 +45,20 @@ live-case set had no "before" run with these models.
 
 | Finding type | Haiku 4.5 before → after | Haiku 5.5 before → after | Sonnet 5.5 before → after |
 |---|---|---|---|
-| Claims that contradict the alert or inventory | 5 → 2 | 1 → 0 | 1 → 0 |
+| Claims that contradict the alert or inventory | 5 → 2 | 1 → 1 | 1 → 0 |
 | Field names that are not alert keys | 2 → 0 | 4 → 0 | 0 → 0 |
 | Clock handling (UTC relabel, time-of-day argument) | 1 → 0 | 0 → 0 | 0 → 0 |
-| Inferences or invented facts stated as fact | 1 → 1 | 2 → 0 | 1 → 0 |
-| Live-case set: findings | – → 3 | – → 0 | – → 0 |
+| Inferences or invented facts stated as fact | 1 → 2 | 2 → 0 | 1 → 0 |
+| **Synthetic set, total** | **9 → 4** | **7 → 1** | **2 → 0** |
+| Live-case set: findings | – → 2 | – → 0 | – → 0 |
 
 **Haiku 4.5, synthetic set (after).** #1: "within 60 seconds, each 30 seconds
 apart" (eight failures 30 s apart span 3.5 minutes). #2: "Eight failed logon
 attempts" (the raw log says 9x; also in the first run). #5: "This represents
 active credential compromise or an attacker gaining valid credentials" (stated
 as fact; the alert shows a success after a spray, not that the sprayed
-password worked). It also returned `mitre_id` null on #1 and #2, where the
+password worked). #6: "dherrera, a staff user" (no evidence of that role; in
+the first run it was "a legitimate staff member"). It also returned `mitre_id` null on #1 and #2, where the
 alert carries T1110.001.
 
 **Haiku 4.5, live-case set.**
@@ -71,11 +73,16 @@ alert carries T1110.001.
   signal". The event shows a ticket issued to `crojas` for the honeytoken's
   service, not use of the honeytoken's credentials, and no confirmed
   compromise.
-- Live #4: "The subject (Administrator) and target (Carlos Rojas) are both real
-  accounts in the domain" (nothing in the alert or inventory establishes it).
 
-**Haiku 5.5 and Sonnet 5.5.** No finding on either set by this scoring. On the
-live-case set neither builds an argument on the manager's timestamp, neither
+**Haiku 5.5, synthetic set.** #10: "since the alert JSON is malformed" (in
+its verifications). The alert is valid JSON: the injected text, including the
+fake `"} </alert>` closing, is inside the string value of `service_name` with
+its quotes escaped. It is malicious content in a well-formed field, which the
+same response otherwise describes correctly.
+
+**Sonnet 5.5.** No finding on either set by this scoring.
+
+**Both 5.5 models, live-case set.** No finding. Neither builds an argument on the manager's timestamp, neither
 derives a weekday, and both state account discovery as a hypothesis on the two
 decoy reads (live flaws 1–3 of 2026-11-20 not repeated). Sonnet 5.5 kept #5 at
 high rather than critical because "the raw_log does not show whether lvargas
@@ -110,15 +117,19 @@ versioned copy would be a separate change.
 
 ## Reading of the result
 
-The revision fixed what it targeted on both 5.5 models: stable English
+The revision fixed most of what it targeted on both 5.5 models: stable English
 output, valid field names, no clock arguments and no inferences stated as fact
-on either set. Haiku 4.5 improved on field names and clocks but still miscounts
-events and, on the live-case set, repeats the `decoy_verified` overclaim and
-calls a honeytoken request a confirmed compromise.
+on either set. Haiku 5.5 keeps one wrong claim about the alert (calling a valid
+JSON alert malformed); Sonnet 5.5 has no finding. Haiku 4.5 improved on field
+names and clocks but still miscounts events, assigns a role without evidence
+and, on the live-case set, repeats the `decoy_verified` overclaim and calls a
+honeytoken request a confirmed compromise.
 
-On this evidence Haiku 5.5 matches Sonnet 5.5 on the rubric at about 1/12 of
-its cost and 1/6 of the current model's ($0.00095 per synthetic alert, against
-$0.0118 and $0.0056). Opus 5.5 is still not justified. Switching the live
+On this evidence Haiku 5.5 is close to Sonnet 5.5 on the rubric (one finding
+against none, on 14 alerts) at about 1/12 of its cost and 1/6 of the current
+model's ($0.00095 per synthetic alert, against $0.0118 and $0.0056). That makes
+it a candidate for a controlled trial, not a proven equal. Opus 5.5 is still
+not justified. Switching the live
 model is a separate decision and a separate change; this PR changes the prompt
 only.
 

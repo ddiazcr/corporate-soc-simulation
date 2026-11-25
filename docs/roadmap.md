@@ -107,12 +107,13 @@ triage threshold; the triaged rules are 100211 and 100212). This changes the
 prompt of the live model too, so the re-run includes Haiku 4.5 on both sets.
 
 **Re-run with the revised prompt (2026-11-24):** 10/10 and 4/4 for all three;
-English 14/14 each; on the rubric Haiku 5.5 and Sonnet 5.5 have no finding on
-either set, while Haiku 4.5 keeps two miscounts and, on the live-case set,
-repeats the `decoy_verified` overclaim. Cost per synthetic alert $0.0056
+English 14/14 each; rubric findings on the synthetic set 4 (Haiku 4.5), 1
+(Haiku 5.5: a valid alert called malformed JSON), 0 (Sonnet 5.5); on the
+live-case set Haiku 4.5 has 2 (it repeats the `decoy_verified` overclaim), the
+5.5 models none. Cost per synthetic alert $0.0056
 (Haiku 4.5), $0.00095 (Haiku 5.5), $0.0118 (Sonnet 5.5). Evidence:
 [`docs/evidence/benchmark-2026-11-24-prompt-v2/`](evidence/benchmark-2026-11-24-prompt-v2/).
-Open decision: switch the live model to Haiku 5.5 (separate change).
+Open decision: a controlled trial of Haiku 5.5 as the live model (separate change).
 
 ---
 
