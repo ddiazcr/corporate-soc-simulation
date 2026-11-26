@@ -297,7 +297,8 @@ still below the cacheable minimum, so there is no cache discount yet.
 ## Live feed from Wazuh
 
 The manager sits on an offline host-only network, so the model is never
-called from the SIEM. `wazuh_feed.py` runs on the analyst workstation, streams
+called from the SIEM. (A NAT adapter found connected to the manager VM on
+2026-11-25 was disconnected; see [lab time synchronisation](../docs/lab-time-sync.md).) `wazuh_feed.py` runs on the analyst workstation, streams
 the manager's `alerts.json` over one SSH session (a small python3 follower on
 the manager, see below), maps each Wazuh
 alert to the pipeline format and triages Nimbrek rules (`1002xx`) at level ≥ 10
