@@ -124,7 +124,9 @@ finding.
 
 **Trial run (2026-11-24):** four live verdicts with Haiku 5.5 (100212,
 2x 100230, 100220), all escalated, all rejected by the analyst as planned;
-no rubric finding, none of the 2026-11-20 flaws repeated; $0.0040 for the four
+one rubric finding (the 100212 verdict asserts that rule 100211 did not
+fire, which a single alert cannot show); none of the 2026-11-20 flaws
+repeated; $0.0040 for the four
 calls, mean latency 7.3 s; model recorded in every case and notice. Model and
 prompt both changed since 2026-11-20, n = 4. Evidence:
 [`docs/evidence/haiku55-live-trial-2026-11-24/`](evidence/haiku55-live-trial-2026-11-24/).

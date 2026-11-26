@@ -49,7 +49,7 @@ showed on these triggers on 2026-11-20:
 | Overclaim on `decoy_verified` (flaw 1) | Not repeated. Both 100230 verdicts say the flag confirms the decoy object was read and keep account discovery as a hypothesis ("a hypothesis to test, not a conclusion" in the first; "consistent with … but a broad directory query … could produce the same single read" in the second). |
 | Argument from the manager's skewed timestamp (flaw 2) | Not repeated. No verdict mentions time of day, change windows or off-hours, although the manager stamped these alerts about 5 days 17 hours behind (see Clocks). |
 | Invented derived fact, e.g. the weekday (flaw 3) | Not repeated. No weekday or other derived date in any verdict. |
-| Claims that contradict the alert | None found. The 100212 verdict reads `::1` as the loopback address, so the request was issued on DC01 itself, which is correct. |
+| Claims the alert does not support | **1.** The 100212 verdict's verifications say "(rule 100211 did not fire)". A single alert cannot show whether another rule fired; nothing in it covers rule 100211. The verdict otherwise reads `::1` correctly as the loopback address (the request was issued on DC01 itself). |
 | Field names outside the alert | None: every `campos_sustento` entry is a top-level key of the alert. |
 | Inferences stated as fact | None found. Kerberoasting is "consistent with … though one request alone does not confirm it"; the 100220 verdict asks for verification before calling the change legitimate or not. |
 
@@ -60,6 +60,12 @@ literally the search would miss the events. The model cannot see the skew and
 builds no conclusion on it, as the prompt asks; none of the four verdicts,
 however, suggests checking the SIEM clock against DC01's before correlating,
 which some benchmark verdicts did. The analyst has to translate the time.
+
+**Total: one finding in four verdicts**, a claim the alert does not support,
+in the verifications of the 100212 case; the stored verdict is kept unchanged
+in [`sqlite-cases.txt`](sqlite-cases.txt). None of the three 2026-11-20 flaws
+was repeated. The first scoring of this run missed the finding; it was found
+in independent review.
 
 Scored by Claude, the same model family as the model under trial; reviewed
 independently before merge.
