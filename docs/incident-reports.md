@@ -303,9 +303,10 @@ returned).
 - Clocks: all guests are kept within the 5-minute Kerberos tolerance (host-only
   network has no NTP, so the DC — the domain time authority — is set correctly
   and Kali is synced to it via `net time set -S <dc>` before any Kerberos-based
-  attack). Since 2026-11-26 the Wazuh manager follows DC01 by NTP (chrony) and
-  DC01 follows the host through VirtualBox Guest Additions: see
-  [lab time synchronisation](lab-time-sync.md).
+  attack). On 2026-11-26 the manager clock was corrected by hand and chrony
+  was configured to follow DC01 (DC01 to follow the host through VirtualBox
+  Guest Additions); that synchronisation is not yet demonstrated (DC01 was
+  marked too variable): see [lab time synchronisation](lab-time-sync.md).
 
 **Lessons.**
 - **Saved states and security labs don't mix for time-sensitive telemetry.**

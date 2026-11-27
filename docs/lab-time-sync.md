@@ -45,18 +45,32 @@ Kali: net time set -S <dc> before Kerberos work (unchanged)
 
 ## Result and what is still open
 
-- **Manager: fixed.** Its offset went from about 6 days 17 hours to within
-  the few seconds an SSH-based check can resolve (host 05:34:51.2Z, manager
-  05:34:57.4Z read after the SSH login), and chrony now follows DC01 with
-  `Leap status: Normal`, isolated from the internet.
+**Status: partial correction; synchronisation to DC01 not yet demonstrated.**
+
+- **Manager clock: corrected once, by hand.** Its offset went from about 6
+  days 17 hours to within the few seconds an SSH-based check can resolve
+  (host 05:34:51.2Z, manager 05:34:57.4Z read after the SSH login). That
+  correction came from setting the clock from the host, not from chrony.
+- **Manager ↔ DC01 via chrony: configured, not shown working.** In the last
+  check `chronyc sources` listed DC01 as `^~ 192.168.56.10 … +51.9s … +/- 10.2s`:
+  reachable (reach 377) but marked `~`, *too variable*, so not the selected
+  source (`*`) per the [chrony 4.8 documentation](https://chrony-project.org/doc/4.8/chronyc.html#sources).
+  `Leap status: Normal` and a small `System time` in `chronyc tracking` do not
+  override that: they reflect an earlier selection, not that the clock is
+  tracking DC01 now. Whether chrony follows DC01, and how far the manager and
+  DC01 clocks are apart, is therefore **not established**; neither is that
+  SIEM and DC timestamps agree.
 - **DC01: still off by seconds, not yet stable.** `w32tm /stripchart` from the
   host measured DC01 at −11.6 to −14.4 s at 23:35 and −5.9 to −10.8 s at 23:57
   (Costa Rica time), with jumps of about 5 s between samples two seconds
   apart. The VBoxService change brought it down from about 57 s but does not
   hold it within a second. The jumps suggest two mechanisms adjusting the clock
-  (VBoxService and w32time); not yet established. Because the manager follows
-  DC01, SIEM and DC timestamps stay consistent with each other, which is what
-  correlation needs; both may be some seconds off the host.
+  (VBoxService and w32time); a hypothesis, not yet established. That DC01
+  jumps would also explain chrony marking it too variable.
+- **To call it resolved:** a joint capture of `chronyc -n sources -v` and
+  `chronyc tracking`, repeated after several polls, showing `^*` on
+  192.168.56.10 and an acceptable offset; plus a `w32tm /stripchart` of DC01
+  against the host without jumps.
 - Next option if needed: serve NTP from the Windows host on the host-only
   adapter and point DC01's w32time at it (and turn VBoxService time sync
   off), so DC01 has one adjuster and an external reference.
